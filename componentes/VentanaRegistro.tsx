@@ -1,18 +1,15 @@
 import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
-type VentanaLoginProps = {
-  onRegistrarse: () => void;
+type VentanaRegistroProps = {
+  onVolverLogin: () => void;
 };
 
-export default function VentanaLogin({ onRegistrarse }: VentanaLoginProps) {
-  const titulo = 'Iniciar sesion';
-  const textoBoton = 'Entrar';
-
+export default function VentanaRegistro({ onVolverLogin }: VentanaRegistroProps) {
   return (
     <View style={estilos.contenedor}>
       <View style={estilos.contenedorInfo}>
         <Text style={estilos.marca}>3R ENERGY S.A.S. BIC</Text>
-        <Text style={estilos.titulo}>{titulo}</Text>
+        <Text style={estilos.titulo}>Registrarse</Text>
 
         <View style={estilos.contenedorDatos}>
           <Text style={estilos.label}>Correo</Text>
@@ -20,7 +17,6 @@ export default function VentanaLogin({ onRegistrarse }: VentanaLoginProps) {
             style={estilos.campoTexto}
             placeholder="correo@ejemplo.com"
             keyboardType="email-address"
-            autoCapitalize="none"
           />
         </View>
 
@@ -28,17 +24,17 @@ export default function VentanaLogin({ onRegistrarse }: VentanaLoginProps) {
           <Text style={estilos.label}>Clave</Text>
           <TextInput
             style={estilos.campoTexto}
-            placeholder="Ingresa tu clave"
+            placeholder="Crea tu clave"
             secureTextEntry
           />
         </View>
 
         <TouchableOpacity style={estilos.boton}>
-          <Text style={estilos.textoBoton}>{textoBoton}</Text>
+          <Text style={estilos.textoBoton}>Enviar</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={estilos.botonRegistrarse} onPress={onRegistrarse}>
-          <Text style={estilos.textoBotonRegistrarse}>Registrarse</Text>
+        <TouchableOpacity style={estilos.botonInicioSesion} onPress={onVolverLogin}>
+          <Text style={estilos.textoBotonInicioSesion}>Inicio de sesión</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -75,7 +71,7 @@ const estilos = StyleSheet.create({
     fontWeight: '700',
     color: '#0b0d3a',
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 22,
   },
   contenedorDatos: {
     marginBottom: 18,
@@ -99,28 +95,28 @@ const estilos = StyleSheet.create({
   boton: {
     height: 48,
     borderRadius: 6,
-    backgroundColor: '#009846',
+    backgroundColor: '#ffe500',
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 8,
   },
   textoBoton: {
-    color: '#ffffff',
+    color: '#0b0d3a',
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '800',
   },
-  botonRegistrarse: {
+  botonInicioSesion: {
     height: 48,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#ffe500',
+    borderColor: '#009846',
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 12,
     backgroundColor: '#ffffff',
   },
-  textoBotonRegistrarse: {
-    color: '#0b0d3a',
+  textoBotonInicioSesion: {
+    color: '#009846',
     fontSize: 16,
     fontWeight: '700',
   },
