@@ -34,16 +34,12 @@ export default function VentanaLogin({ onRegistrarse, onIrHome }: VentanaLoginPr
           />
         </View>
 
-        <TouchableOpacity style={estilos.boton}>
+        <TouchableOpacity style={estilos.boton} onPress={onIrHome}>
           <Text style={estilos.textoBoton}>{textoBoton}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={estilos.botonRegistrarse} onPress={onRegistrarse}>
           <Text style={estilos.textoBotonRegistrarse}>Registrarse</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={estilos.botonOk} onPress={onIrHome}>
-          <Text style={estilos.textoBotonOk}>Ok</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -128,18 +124,5 @@ const estilos = StyleSheet.create({
     color: '#0b0d3a',
     fontSize: 16,
     fontWeight: '700',
-  },
-  botonOk: {
-    height: 48,
-    borderRadius: 6,
-    backgroundColor: '#ffe500',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 12,
-  },
-  textoBotonOk: {
-    color: '#0b0d3a',
-    fontSize: 16,
-    fontWeight: '800',
   },
 });
