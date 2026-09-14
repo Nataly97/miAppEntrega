@@ -1,20 +1,29 @@
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import Home from './componentes/Home';
+import VentanaLogin from './componentes/VentanaLogin';
+import VentanaRegistro from './componentes/VentanaRegistro';
 
 export default function App() {
+  const [pantalla, setPantalla] = useState<'login' | 'registro' | 'home'>('login');
+
   return (
-    <View style={styles.container}>
-      <Text>Open up App.tsx to start working on your app!</Text>
+    <>
+      {pantalla === 'login' && (
+        <VentanaLogin
+          onRegistrarse={() => setPantalla('registro')}
+          onIrHome={() => setPantalla('home')}
+        />
+      )}
+
+      {pantalla === 'registro' && (
+        <VentanaRegistro onVolverLogin={() => setPantalla('login')} />
+      )}
+
+      {pantalla === 'home' && (
+        <Home onVolverLogin={() => setPantalla('login')} />
+      )}
       <StatusBar style="auto" />
-    </View>
+    </>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
