@@ -1,29 +1,45 @@
+import { NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
 import Home from './componentes/Home';
 import VentanaLogin from './componentes/VentanaLogin';
 import VentanaRegistro from './componentes/VentanaRegistro';
+import type { RolUsuario } from './src/modelos/baseDatos';
+
+// Aqui defino las pantallas que tiene mi app y que datos recibe cada una.
+// Esto me ayuda a que TypeScript me avise si envio mal un parametro al navegar.
+export type RootStackParamList = {
+  Login: undefined;
+  Registro: undefined;
+  Home: {
+    usuarioId: string;
+    usuario: string;
+    rol: RolUsuario;
+    nombre: string;
+    correo: string;
+  };
+};
+
+// Creo el navegador principal tipo Stack, que funciona como una pila de pantallas.
+const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function App() {
-  const [pantalla, setPantalla] = useState<'login' | 'registro' | 'home'>('login');
-
   return (
-    <>
-      {pantalla === 'login' && (
-        <VentanaLogin
-          onRegistrarse={() => setPantalla('registro')}
-          onIrHome={() => setPantalla('home')}
-        />
-      )}
-
-      {pantalla === 'registro' && (
-        <VentanaRegistro onVolverLogin={() => setPantalla('login')} />
-      )}
-
-      {pantalla === 'home' && (
-        <Home onVolverLogin={() => setPantalla('login')} />
-      )}
-      <StatusBar style="auto" />
-    </>
+    // NavigationContainer envuelve toda la navegacion de la app.
+    <NavigationContainer>
+      <StatusBar style="light" />
+      {/* Este Stack controla que pantalla se muestra: Login, Registro o Home. */}
+      <Stack.Navigator
+        initialRouteName="Login"
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: '#f4f7f2' },
+        }}
+      >
+        <Stack.Screen name="Login" component={VentanaLogin} />
+        <Stack.Screen name="Registro" component={VentanaRegistro} />
+        <Stack.Screen name="Home" component={Home} />
+      </Stack.Navigator>
+    </NavigationContainer>
   );
 }
