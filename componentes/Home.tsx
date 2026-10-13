@@ -133,7 +133,7 @@ export default function Home({ navigation, route }: Props) {
       </View>
 
       {/* Tarjeta con los datos basicos que fueron validados en el login. */}
-      <View style={estilos.tarjetaPerfil}>
+      {/* <View style={estilos.tarjetaPerfil}>
         <View>
           <Text style={estilos.etiquetaPerfil}>Usuario</Text>
           <Text style={estilos.valorPerfil}>{usuario}</Text>
@@ -146,13 +146,13 @@ export default function Home({ navigation, route }: Props) {
           <Text style={estilos.etiquetaPerfil}>Rol validado</Text>
           <Text style={estilos.valorPerfil}>{rol}</Text>
         </View>
-      </View>
+      </View> */}
 
       {/* Estado de conexion a la base de datos. */}
-      <View style={[estilos.estadoConexion, conexionActiva ? estilos.estadoOk : estilos.estadoPendiente]}>
+      {/* <View style={[estilos.estadoConexion, conexionActiva ? estilos.estadoOk : estilos.estadoPendiente]}>
         <Text style={estilos.estadoTitulo}>Base de datos</Text>
         <Text style={estilos.estadoTexto}>{estadoConexion}</Text>
-      </View>
+      </View> */}
 
       {/* Descripcion general del panel segun el rol. */}
       <View style={estilos.seccion}>

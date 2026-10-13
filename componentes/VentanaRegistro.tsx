@@ -28,9 +28,9 @@ export default function VentanaRegistro({ navigation }: Props) {
     <ScrollView contentContainerStyle={estilos.contenedor} keyboardShouldPersistTaps="handled">
       {/* Formulario base para que un empleado cree un cliente. */}
       <View style={estilos.panel}>
-        <Text style={estilos.marca}>EcoPuntos</Text>
+        <Text style={estilos.marca}>ReciCash</Text>
         <Text style={estilos.titulo}>Crear cliente</Text>
-        <Text style={estilos.textoAyuda}>Vista base para empleados: registra los datos iniciales del cliente.</Text>
+        {/* <Text style={estilos.textoAyuda}>Vista base para empleados: registra los datos iniciales del cliente.</Text> */}
 
         {/* Nombre completo del cliente. */}
         <View style={estilos.grupoCampo}>

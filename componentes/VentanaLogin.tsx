@@ -10,30 +10,30 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
 
 // Opciones de rol que muestro en el login.
 // El rol elegido debe coincidir con el rol guardado en la base de datos.
-const roles: { valor: RolUsuario; etiqueta: string; descripcion: string }[] = [
+const roles: { valor: RolUsuario; etiqueta: string}[] = [
   {
     valor: 'administrador',
     etiqueta: 'Admin',
-    descripcion: 'Control total',
+    // descripcion: 'Control total',
   },
   {
     valor: 'empleado',
     etiqueta: 'Empleado',
-    descripcion: 'Registra puntos',
+    // descripcion: 'Registra puntos',
   },
   {
     valor: 'cliente',
     etiqueta: 'Cliente',
-    descripcion: 'Consulta y canjea',
+    // descripcion: 'Consulta y canjea',
   },
 ];
 
 export default function VentanaLogin({ navigation }: Props) {
   // Estados del formulario de login.
   // Datos de cliente por defecto para probar rapido durante la fase 1.
-  const [rol, setRol] = useState<RolUsuario>('cliente');
-  const [usuario, setUsuario] = useState('cliente');
-  const [clave, setClave] = useState('cliente123');
+  const [rol, setRol] = useState<RolUsuario>('administrador');
+  const [usuario, setUsuario] = useState('admin@ecopuntos.com');
+  const [clave, setClave] = useState('admin123');
   const [mensajeError, setMensajeError] = useState('');
   const [cargando, setCargando] = useState(false);
 
@@ -79,7 +79,7 @@ export default function VentanaLogin({ navigation }: Props) {
       {/* Panel principal del formulario de inicio de sesion. */}
       <View style={estilos.panel}>
         <Text style={estilos.titulo}>Iniciar sesion</Text>
-        <Text style={estilos.textoAyuda}>Valida usuario, clave y rol desde la base de datos.</Text>
+        {/* <Text style={estilos.textoAyuda}>Valida usuario, clave y rol desde la base de datos.</Text> */}
 
         {/* Selector de rol. Cada boton cambia el rol que se va a validar. */}
         <View style={estilos.selectorRoles}>
@@ -92,7 +92,7 @@ export default function VentanaLogin({ navigation }: Props) {
                 onPress={() => setRol(item.valor)}
               >
                 <Text style={[estilos.rolEtiqueta, activo && estilos.rolEtiquetaActiva]}>{item.etiqueta}</Text>
-                <Text style={[estilos.rolDescripcion, activo && estilos.rolDescripcionActiva]}>{item.descripcion}</Text>
+                {/* <Text style={[estilos.rolDescripcion, activo && estilos.rolDescripcionActiva]}>{item.descripcion}</Text> */}
               </TouchableOpacity>
             );
           })}
