@@ -1,97 +1,87 @@
-import { datosIniciales } from '../datos/modeloBaseDatos';
+import type { User } from '@supabase/supabase-js';
 import type { RolUsuario, Usuario } from '../modelos/baseDatos';
-import { hayFirebaseConfigurado, obtenerColeccion } from './firebase';
+import { haySupabaseConfigurado, supabase } from './supabase';
 
-// Estas son las credenciales que el usuario escribe en el formulario de login.
-type CredencialesLogin = {
-  usuario: string;
-  clave: string;
-  rol: RolUsuario;
-};
-
-// Este resultado me permite saber si el login funciono o si debo mostrar un error.
+// Este es el usuario con el que trabajo despues de iniciar sesion.
 export type ResultadoLogin =
-  | {
-      ok: true;
-      usuario: Usuario;
-      origen: 'firebase' | 'local';
-    }
-  | {
-      ok: false;
-      mensaje: string;
-    };
+  | { ok: true; usuario: Usuario }
+  | { ok: false; mensaje: string };
 
-// Normalizo textos para comparar usuarios sin importar mayusculas o espacios.
-const normalizar = (valor: string) => valor.trim().toLowerCase();
+// Convierto el perfil de Supabase en el formato que usan las pantallas.
+const obtenerPerfil = async (id: string): Promise<Usuario> => {
+  if (!supabase) throw new Error('Supabase no esta configurado. Revisa el archivo .env.');
 
-// Esta funcion busca un usuario por nombre de usuario o correo y valida su clave.
-const buscarUsuario = (usuarios: Record<string, Usuario> | null | undefined, credenciales: CredencialesLogin) => {
-  const usuarioIngresado = normalizar(credenciales.usuario);
-  const claveIngresada = credenciales.clave.trim();
+  const { data, error } = await supabase.from('usuarios').select('*').eq('id', id).single();
+  if (error) throw new Error('No se encontro el perfil del usuario en la tabla usuarios.');
+  if (!data.activo) throw new Error('La cuenta esta inactiva.');
 
-  return Object.values(usuarios ?? {}).find((usuario) => {
-    const coincideUsuario =
-      normalizar(usuario.usuario) === usuarioIngresado || normalizar(usuario.correo) === usuarioIngresado;
-
-    return coincideUsuario && usuario.clave === claveIngresada;
-  });
+  return data as Usuario;
 };
 
-// Esta es la funcion principal del login.
-// Primero intenta validar contra Firebase y, si no hay conexion, usa los datos locales.
-export async function iniciarSesionConRol(credenciales: CredencialesLogin): Promise<ResultadoLogin> {
-  // Valido que no intenten entrar con campos vacios.
-  if (!credenciales.usuario.trim() || !credenciales.clave.trim()) {
+// Inicio sesion con Supabase Auth y luego cargo el perfil y el rol de la persona.
+export async function iniciarSesionConRol(correo: string, clave: string): Promise<ResultadoLogin> {
+  if (!correo.trim() || !clave) return { ok: false, mensaje: 'Ingresa tu correo y tu clave.' };
+  if (!haySupabaseConfigurado || !supabase) {
+    return { ok: false, mensaje: 'Configura Supabase en el archivo .env para iniciar sesion.' };
+  }
+
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: correo.trim().toLowerCase(),
+    password: clave,
+  });
+
+  if (error || !data.user) return { ok: false, mensaje: 'El correo o la clave no son correctos.' };
+
+  try {
+    return { ok: true, usuario: await obtenerPerfil(data.user.id) };
+  } catch (errorPerfil) {
+    await supabase.auth.signOut();
     return {
       ok: false,
-      mensaje: 'Ingresa usuario y clave.',
+      mensaje: errorPerfil instanceof Error ? errorPerfil.message : 'No fue posible cargar tu perfil.',
     };
   }
+}
 
-  let usuarios = datosIniciales.usuarios;
-  let origen: 'firebase' | 'local' = 'local';
+// Recupero la cuenta de Supabase que sigue activa al abrir la aplicacion.
+export async function obtenerUsuarioDeSesion(user: User): Promise<Usuario> {
+  return obtenerPerfil(user.id);
+}
 
-  // Si Firebase esta configurado, intento traer la coleccion usuarios desde la base.
-  if (hayFirebaseConfigurado) {
-    try {
-      usuarios = await obtenerColeccion('usuarios');
-      origen = 'firebase';
-    } catch {
-      usuarios = datosIniciales.usuarios;
-      origen = 'local';
-    }
-  }
+// Creo una cuenta de cliente; el trigger de la base crea su perfil relacionado.
+export async function registrarCliente(datos: {
+  nombre: string;
+  usuario: string;
+  correo: string;
+  clave: string;
+  documento: string;
+  telefono: string;
+  direccion: string;
+}) {
+  if (!supabase) throw new Error('Supabase no esta configurado. Revisa el archivo .env.');
 
-  // Busco el usuario con la informacion que escribieron en el login.
-  const usuario = buscarUsuario(usuarios, credenciales);
+  const { data, error } = await supabase.auth.signUp({
+    email: datos.correo.trim().toLowerCase(),
+    password: datos.clave,
+    options: {
+      data: {
+        nombre: datos.nombre.trim(),
+        usuario: datos.usuario.trim(),
+        rol: 'cliente' satisfies RolUsuario,
+        documento: datos.documento.trim(),
+        telefono: datos.telefono.trim(),
+        direccion: datos.direccion.trim(),
+      },
+    },
+  });
 
-  if (!usuario) {
-    return {
-      ok: false,
-      mensaje: 'Usuario o clave incorrectos.',
-    };
-  }
+  if (error) throw new Error(error.message);
+  return { requiereConfirmacion: !data.session };
+}
 
-  // Aunque la clave sea correcta, un usuario inactivo no debe entrar.
-  if (!usuario.activo) {
-    return {
-      ok: false,
-      mensaje: 'El usuario esta inactivo.',
-    };
-  }
-
-  // Aqui valido que el rol seleccionado coincida con el rol guardado en la base.
-  if (usuario.rol !== credenciales.rol) {
-    return {
-      ok: false,
-      mensaje: `Este usuario tiene rol ${usuario.rol}. Cambia el rol seleccionado.`,
-    };
-  }
-
-  // Si todo salio bien, devuelvo el usuario para abrir su vista correspondiente.
-  return {
-    ok: true,
-    usuario,
-    origen,
-  };
+// Cierro la sesion en Supabase y dejo que la app vuelva al login.
+export async function cerrarSesion() {
+  if (!supabase) return;
+  const { error } = await supabase.auth.signOut();
+  if (error) throw new Error(error.message);
 }

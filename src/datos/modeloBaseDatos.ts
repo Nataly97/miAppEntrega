@@ -1,4 +1,4 @@
-import type { ColeccionesFirebase } from '../modelos/baseDatos';
+import type { ColeccionesSupabase } from '../modelos/baseDatos';
 
 // Lista de colecciones que debe tener mi base de datos en la fase 1.
 // La uso tambien en Home para mostrar el modelo de datos del proyecto.
@@ -13,17 +13,16 @@ export const coleccionesFase1 = [
   'centrosAcopio',
 ] as const;
 
-// Estos son datos iniciales para probar la app sin depender todavia de Firebase.
-// Si Firebase esta configurado, estos mismos datos sirven como ejemplo para crear la base.
-export const datosIniciales: ColeccionesFirebase = {
-  // Usuarios de prueba para validar login por rol.
+// Estos son datos iniciales para probar la app sin depender todavia de Supabase.
+// Si Supabase esta configurado, estos mismos datos sirven como ejemplo para crear la base.
+export const datosIniciales: ColeccionesSupabase = {
+  // Perfiles de ejemplo para mostrar metricas del panel.
   usuarios: {
     admin_001: {
       id: 'admin_001',
       nombre: 'Administradora General',
       usuario: 'admin',
       correo: 'admin@ecopuntos.com',
-      clave: 'admin123',
       rol: 'administrador',
       activo: true,
       fechaCreacion: '2026-10-06',
@@ -33,7 +32,6 @@ export const datosIniciales: ColeccionesFirebase = {
       nombre: 'Empleado Punto Verde',
       usuario: 'empleado',
       correo: 'empleado@ecopuntos.com',
-      clave: 'empleado123',
       rol: 'empleado',
       activo: true,
       fechaCreacion: '2026-10-06',
@@ -43,7 +41,6 @@ export const datosIniciales: ColeccionesFirebase = {
       nombre: 'Cliente EcoPuntos',
       usuario: 'cliente',
       correo: 'cliente@ecopuntos.com',
-      clave: 'cliente123',
       rol: 'cliente',
       activo: true,
       fechaCreacion: '2026-10-06',

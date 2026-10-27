@@ -2,6 +2,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import type { RootStackParamList } from '../App';
+import { registrarCliente } from '../src/servicios/autenticacion';
 import { colores } from '../src/tema/colores';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Registro'>;
@@ -9,19 +10,45 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Registro'>;
 export default function VentanaRegistro({ navigation }: Props) {
   // Estados del formulario para capturar los datos iniciales del cliente.
   const [nombre, setNombre] = useState('');
+  const [usuario, setUsuario] = useState('');
   const [correo, setCorreo] = useState('');
   const [documento, setDocumento] = useState('');
+  const [telefono, setTelefono] = useState('');
+  const [direccion, setDireccion] = useState('');
+  const [clave, setClave] = useState('');
+  const [mensaje, setMensaje] = useState('');
+  const [registroCorrecto, setRegistroCorrecto] = useState(false);
+  const [cargando, setCargando] = useState(false);
 
-  // En esta fase todavia no guardo el cliente en Firebase.
-  // Por ahora simulo que el empleado hizo el registro y vuelvo al panel empleado.
-  const registrarCliente = () => {
-    navigation.navigate('Home', {
-      usuarioId: 'empleado_001',
-      usuario: 'empleado',
-      rol: 'empleado',
-      nombre: 'Empleado Punto Verde',
-      correo: 'empleado@ecopuntos.com',
-    });
+  // Valido los campos y creo la cuenta de cliente con Supabase Auth.
+  const guardarCliente = async () => {
+    setMensaje('');
+    setRegistroCorrecto(false);
+    if (!nombre.trim() || !usuario.trim() || !correo.trim() || !documento.trim() || !telefono.trim() || !direccion.trim()) {
+      setMensaje('Completa todos los campos del formulario.');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo.trim())) {
+      setMensaje('Escribe un correo electronico valido.');
+      return;
+    }
+    if (clave.length < 8) {
+      setMensaje('La clave debe tener al menos 8 caracteres.');
+      return;
+    }
+
+    setCargando(true);
+    try {
+      const resultado = await registrarCliente({ nombre, usuario, correo, clave, documento, telefono, direccion });
+      setMensaje(resultado.requiereConfirmacion
+        ? 'Cuenta creada. Revisa tu correo para confirmar el registro antes de iniciar sesion.'
+        : 'Cuenta creada. Ya puedes iniciar sesion.');
+      setRegistroCorrecto(true);
+    } catch (error) {
+      setMensaje(error instanceof Error ? error.message : 'No fue posible crear la cuenta.');
+    } finally {
+      setCargando(false);
+    }
   };
 
   return (
@@ -30,7 +57,6 @@ export default function VentanaRegistro({ navigation }: Props) {
       <View style={estilos.panel}>
         <Text style={estilos.marca}>ReciCash</Text>
         <Text style={estilos.titulo}>Crear cliente</Text>
-        {/* <Text style={estilos.textoAyuda}>Vista base para empleados: registra los datos iniciales del cliente.</Text> */}
 
         {/* Nombre completo del cliente. */}
         <View style={estilos.grupoCampo}>
@@ -41,6 +67,11 @@ export default function VentanaRegistro({ navigation }: Props) {
             value={nombre}
             onChangeText={setNombre}
           />
+        </View>
+
+        <View style={estilos.grupoCampo}>
+          <Text style={estilos.label}>Nombre de usuario</Text>
+          <TextInput style={estilos.campoTexto} placeholder="miusuario" autoCapitalize="none" value={usuario} onChangeText={setUsuario} />
         </View>
 
         {/* Documento del cliente para identificarlo. */}
@@ -68,9 +99,25 @@ export default function VentanaRegistro({ navigation }: Props) {
           />
         </View>
 
-        {/* Boton que simula guardar el cliente. */}
-        <TouchableOpacity style={estilos.botonPrincipal} onPress={registrarCliente}>
-          <Text style={estilos.textoBotonPrincipal}>Guardar cliente</Text>
+        <View style={estilos.grupoCampo}>
+          <Text style={estilos.label}>Clave (minimo 8 caracteres)</Text>
+          <TextInput style={estilos.campoTexto} placeholder="Crea una clave segura" value={clave} onChangeText={setClave} secureTextEntry />
+        </View>
+
+        <View style={estilos.grupoCampo}>
+          <Text style={estilos.label}>Telefono</Text>
+          <TextInput style={estilos.campoTexto} placeholder="Telefono de contacto" keyboardType="phone-pad" value={telefono} onChangeText={setTelefono} />
+        </View>
+
+        <View style={estilos.grupoCampo}>
+          <Text style={estilos.label}>Direccion</Text>
+          <TextInput style={estilos.campoTexto} placeholder="Direccion de residencia" value={direccion} onChangeText={setDireccion} />
+        </View>
+
+        {mensaje ? <Text style={[estilos.mensaje, registroCorrecto && estilos.mensajeCorrecto]}>{mensaje}</Text> : null}
+
+        <TouchableOpacity style={estilos.botonPrincipal} onPress={guardarCliente} disabled={cargando}>
+          <Text style={estilos.textoBotonPrincipal}>{cargando ? 'Guardando...' : 'Crear cuenta'}</Text>
         </TouchableOpacity>
 
         {/* Boton para regresar al login si no quiero registrar. */}
@@ -150,6 +197,15 @@ const estilos = StyleSheet.create({
     color: colores.blanco,
     fontSize: 16,
     fontWeight: '800',
+  },
+  mensaje: {
+    color: colores.error,
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 10,
+  },
+  mensajeCorrecto: {
+    color: colores.verdeOscuro,
   },
   botonSecundario: {
     height: 48,

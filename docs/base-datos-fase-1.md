@@ -1,8 +1,8 @@
 # Base de datos - Fase 1
 
-Proveedor elegido: Firebase Realtime Database.
+Proveedor elegido: Supabase.
 
-La app lee la URL desde `EXPO_PUBLIC_FIREBASE_DATABASE_URL`. Para configurarlo, crea un archivo `.env` en la raiz de `miAppEntrega` tomando como base `.env.example`.
+La app lee la configuracion desde `EXPO_PUBLIC_SUPABASE_URL` y `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. Para configurarlo, crea un archivo `.env` en la raiz de `miAppEntrega` tomando como base `.env.example`.
 
 ## Colecciones
 
@@ -15,17 +15,11 @@ Campos:
 - `nombre`: nombre visible.
 - `usuario`: nombre de usuario para iniciar sesion.
 - `correo`: correo de acceso.
-- `clave`: clave de acceso para la fase academica.
 - `rol`: `administrador`, `empleado` o `cliente`.
 - `activo`: estado de la cuenta.
 - `fechaCreacion`: fecha de registro.
 
-Usuarios semilla para pruebas:
-- Administrador: `admin` / `admin123`
-- Empleado: `empleado` / `empleado123`
-- Cliente: `cliente` / `cliente123`
-
-Nota: guardar claves en texto plano solo es aceptable para esta fase academica inicial. En una version real se debe usar Firebase Authentication o contrasenas cifradas desde un backend.
+Las claves se administran en Supabase Auth y no se guardan en la tabla `usuarios`. Las cuentas administrativas y de empleados se crean primero en Supabase Auth y luego se les asigna su rol en el perfil.
 
 ### clientes
 
@@ -115,22 +109,96 @@ Campos:
 - `ciudad`: ciudad.
 - `activo`: estado del punto.
 
-## JSON inicial para Firebase
+## Datos iniciales para Supabase
 
-El archivo `src/datos/modeloBaseDatos.ts` contiene datos semilla para estas colecciones. Ese mismo objeto puede usarse desde `guardarDatosIniciales()` en `src/servicios/firebase.ts` para cargar informacion inicial en la base de datos.
+El archivo `src/datos/modeloBaseDatos.ts` contiene datos de ejemplo usados en las metricas de la interfaz. No los cargues como usuarios reales: las cuentas deben crearse en Supabase Auth y vincularse con sus perfiles.
 
-## Reglas sugeridas para desarrollo
+## SQL inicial
 
-Estas reglas sirven solo para pruebas academicas de fase 1. En fases posteriores se deben reemplazar por reglas con autenticacion y permisos por rol.
+En el SQL Editor de Supabase puedes crear las tablas con estos nombres y campos para que coincidan con el codigo actual de la app:
 
-```json
-{
-  "rules": {
-    ".read": true,
-    ".write": true
-  }
-}
+```sql
+create table usuarios (
+  id text primary key,
+  nombre text not null,
+  usuario text not null,
+  correo text not null,
+  rol text not null check (rol in ('administrador', 'empleado', 'cliente')),
+  activo boolean not null default true,
+  "fechaCreacion" text not null
+);
+
+create table clientes (
+  id text primary key,
+  "usuarioId" text not null references usuarios(id),
+  documento text not null,
+  telefono text not null,
+  direccion text not null,
+  "puntosDisponibles" integer not null default 0,
+  "puntosAcumulados" integer not null default 0
+);
+
+create table "materialesReciclables" (
+  id text primary key,
+  nombre text not null,
+  "unidadMedida" text not null check ("unidadMedida" in ('kg', 'unidad')),
+  "puntosPorUnidad" integer not null,
+  activo boolean not null default true
+);
+
+create table "movimientosPuntos" (
+  id text primary key,
+  "clienteId" text not null references clientes(id),
+  "empleadoId" text not null references usuarios(id),
+  "materialId" text references "materialesReciclables"(id),
+  tipo text not null check (tipo in ('acumulacion', 'canje', 'ajuste')),
+  "cantidadMaterial" numeric,
+  puntos integer not null,
+  descripcion text not null,
+  fecha text not null
+);
+
+create table aliados (
+  id text primary key,
+  nombre text not null,
+  categoria text not null,
+  ciudad text not null,
+  activo boolean not null default true
+);
+
+create table recompensas (
+  id text primary key,
+  "aliadoId" text not null references aliados(id),
+  nombre text not null,
+  descripcion text not null,
+  "puntosRequeridos" integer not null,
+  stock integer not null,
+  activo boolean not null default true
+);
+
+create table canjes (
+  id text primary key,
+  "clienteId" text not null references clientes(id),
+  "recompensaId" text not null references recompensas(id),
+  "empleadoId" text references usuarios(id),
+  "puntosUsados" integer not null,
+  estado text not null check (estado in ('pendiente', 'aprobado', 'entregado', 'cancelado')),
+  "fechaSolicitud" text not null,
+  "fechaEntrega" text
+);
+
+create table "centrosAcopio" (
+  id text primary key,
+  nombre text not null,
+  direccion text not null,
+  ciudad text not null,
+  activo boolean not null default true
+);
 ```
+
+## Configuracion final de autenticacion y RLS
+
+Despues de crear las tablas, ejecuta [`supabase/entrega_final.sql`](../supabase/entrega_final.sql) en el SQL Editor de Supabase. El script quita la columna de claves en texto plano, crea los perfiles de cliente desde Supabase Auth y aplica politicas RLS para separar operaciones de clientes, empleados y administradores. No se deben habilitar politicas de lectura o escritura publica para `anon`.
 
 ## Relacion entre entidades
 

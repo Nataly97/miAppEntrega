@@ -1,10 +1,11 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useEffect, useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import type { RootStackParamList } from '../App';
 import { coleccionesFase1, datosIniciales } from '../src/datos/modeloBaseDatos';
-import type { RolUsuario } from '../src/modelos/baseDatos';
-import { verificarConexionFirebase } from '../src/servicios/firebase';
+import type { Cliente, RolUsuario } from '../src/modelos/baseDatos';
+import { obtenerColeccion, verificarConexionSupabase } from '../src/servicios/supabase';
+import { cerrarSesion } from '../src/servicios/autenticacion';
 import { colores } from '../src/tema/colores';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
@@ -21,15 +22,10 @@ type ConfiguracionPanel = {
   };
 };
 
-// Busco el cliente asociado al usuario que inicio sesion.
-// Esto sirve especialmente para mostrar puntos cuando entra un cliente.
-const obtenerClienteDeUsuario = (usuarioId: string) =>
-  Object.values(datosIniciales.clientes).find((cliente) => cliente.usuarioId === usuarioId);
-
 // Esta funcion arma una vista diferente segun el rol del usuario.
 // Asi centralizo permisos, metricas y modulos en un solo lugar.
-const crearConfiguracionPanel = (rol: RolUsuario, usuarioId: string): ConfiguracionPanel => {
-  const cliente = obtenerClienteDeUsuario(usuarioId) ?? datosIniciales.clientes.cliente_001;
+const crearConfiguracionPanel = (rol: RolUsuario, clienteReal: Cliente | null): ConfiguracionPanel => {
+  const cliente = clienteReal ?? { puntosDisponibles: 0, puntosAcumulados: 0 };
 
   // Cada rol tiene su propio resumen, permisos y modulo principal.
   const paneles: Record<RolUsuario, ConfiguracionPanel> = {
@@ -105,17 +101,35 @@ export default function Home({ navigation, route }: Props) {
   const { rol, nombre, correo, usuarioId, usuario } = route.params;
   const [estadoConexion, setEstadoConexion] = useState('Verificando conexion...');
   const [conexionActiva, setConexionActiva] = useState(false);
+  const [cliente, setCliente] = useState<Cliente | null>(null);
 
-  // Al cargar la pantalla reviso si Firebase esta conectado.
+  // Al cargar la pantalla reviso si Supabase esta conectado.
   useEffect(() => {
-    verificarConexionFirebase().then((resultado) => {
+    verificarConexionSupabase().then((resultado) => {
       setConexionActiva(resultado.ok);
       setEstadoConexion(resultado.mensaje);
     });
   }, []);
 
+  // Cargo los puntos del cliente autenticado desde su propio registro en Supabase.
+  useEffect(() => {
+    if (rol !== 'cliente') return;
+    obtenerColeccion('clientes')
+      .then((clientes) => setCliente(Object.values(clientes).find((item) => item.usuarioId === usuarioId) ?? null))
+      .catch(() => setCliente(null));
+  }, [rol, usuarioId]);
+
   // Memorizo la configuracion para recalcularla solo si cambia el rol o usuario.
-  const panel = useMemo(() => crearConfiguracionPanel(rol, usuarioId), [rol, usuarioId]);
+  const panel = useMemo(() => crearConfiguracionPanel(rol, cliente), [rol, cliente]);
+
+  // Cierro la sesion guardada para que la siguiente pantalla sea el login.
+  const salir = async () => {
+    try {
+      await cerrarSesion();
+    } catch (error) {
+      Alert.alert('No se pudo cerrar sesion', error instanceof Error ? error.message : 'Intenta de nuevo.');
+    }
+  };
 
   return (
     <ScrollView contentContainerStyle={estilos.contenedor}>
@@ -127,13 +141,19 @@ export default function Home({ navigation, route }: Props) {
           <Text style={estilos.subtitulo}>{panel.titulo}</Text>
         </View>
 
-        <TouchableOpacity style={estilos.botonSalir} onPress={() => navigation.navigate('Login')}>
+        <TouchableOpacity style={estilos.botonSalir} onPress={() => void salir()}>
           <Text style={estilos.textoBotonSalir}>Salir</Text>
         </TouchableOpacity>
       </View>
 
+      {rol === 'administrador' ? (
+        <TouchableOpacity style={estilos.botonGestion} onPress={() => navigation.navigate('GestionDatos')}>
+          <Text style={estilos.textoBotonGestion}>Gestionar datos de Supabase</Text>
+        </TouchableOpacity>
+      ) : null}
+
       {/* Tarjeta con los datos basicos que fueron validados en el login. */}
-      {/* <View style={estilos.tarjetaPerfil}>
+      <View style={estilos.tarjetaPerfil}>
         <View>
           <Text style={estilos.etiquetaPerfil}>Usuario</Text>
           <Text style={estilos.valorPerfil}>{usuario}</Text>
@@ -146,13 +166,13 @@ export default function Home({ navigation, route }: Props) {
           <Text style={estilos.etiquetaPerfil}>Rol validado</Text>
           <Text style={estilos.valorPerfil}>{rol}</Text>
         </View>
-      </View> */}
+      </View>
 
       {/* Estado de conexion a la base de datos. */}
-      {/* <View style={[estilos.estadoConexion, conexionActiva ? estilos.estadoOk : estilos.estadoPendiente]}>
+      <View style={[estilos.estadoConexion, conexionActiva ? estilos.estadoOk : estilos.estadoPendiente]}>
         <Text style={estilos.estadoTitulo}>Base de datos</Text>
         <Text style={estilos.estadoTexto}>{estadoConexion}</Text>
-      </View> */}
+      </View>
 
       {/* Descripcion general del panel segun el rol. */}
       <View style={estilos.seccion}>
@@ -261,6 +281,19 @@ const estilos = StyleSheet.create({
   textoBotonSalir: {
     color: colores.verdeOscuro,
     fontSize: 14,
+    fontWeight: '800',
+  },
+  botonGestion: {
+    minHeight: 48,
+    borderRadius: 8,
+    backgroundColor: colores.verde,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 18,
+  },
+  textoBotonGestion: {
+    color: colores.blanco,
+    fontSize: 15,
     fontWeight: '800',
   },
   tarjetaPerfil: {

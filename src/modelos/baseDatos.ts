@@ -16,7 +16,6 @@ export type Usuario = {
   nombre: string;
   usuario: string;
   correo: string;
-  clave: string;
   rol: RolUsuario;
   activo: boolean;
   fechaCreacion: string;
@@ -96,8 +95,8 @@ export type CentroAcopio = {
   activo: boolean;
 };
 
-// Este tipo resume todas las colecciones que espero tener en Firebase.
-export type ColeccionesFirebase = {
+// Este tipo resume todas las tablas que espero tener en Supabase.
+export type ColeccionesSupabase = {
   usuarios: Record<string, Usuario>;
   clientes: Record<string, Cliente>;
   materialesReciclables: Record<string, MaterialReciclable>;

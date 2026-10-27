@@ -2,70 +2,42 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import type { RootStackParamList } from '../App';
-import type { RolUsuario } from '../src/modelos/baseDatos';
 import { iniciarSesionConRol } from '../src/servicios/autenticacion';
 import { colores } from '../src/tema/colores';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
 
-// Opciones de rol que muestro en el login.
-// El rol elegido debe coincidir con el rol guardado en la base de datos.
-const roles: { valor: RolUsuario; etiqueta: string}[] = [
-  {
-    valor: 'administrador',
-    etiqueta: 'Admin',
-    // descripcion: 'Control total',
-  },
-  {
-    valor: 'empleado',
-    etiqueta: 'Empleado',
-    // descripcion: 'Registra puntos',
-  },
-  {
-    valor: 'cliente',
-    etiqueta: 'Cliente',
-    // descripcion: 'Consulta y canjea',
-  },
-];
-
 export default function VentanaLogin({ navigation }: Props) {
-  // Estados del formulario de login.
-  // Datos de cliente por defecto para probar rapido durante la fase 1.
-  const [rol, setRol] = useState<RolUsuario>('administrador');
-  const [usuario, setUsuario] = useState('admin@ecopuntos.com');
-  const [clave, setClave] = useState('admin123');
+  // Guardo lo que la persona escribe y el estado de la solicitud de acceso.
+  const [correo, setCorreo] = useState('');
+  const [clave, setClave] = useState('');
   const [mensajeError, setMensajeError] = useState('');
   const [cargando, setCargando] = useState(false);
 
   // Esta funcion se ejecuta cuando presiono "Entrar al panel".
-  // Valida usuario, clave y rol antes de permitir navegar al Home.
+  // Valido el correo y la clave; el rol se consulta despues en el perfil de Supabase.
   const iniciarSesion = async () => {
-    setCargando(true);
     setMensajeError('');
-
-    // Llamo al servicio de autenticacion para no mezclar la logica del login con la vista.
-    const resultado = await iniciarSesionConRol({
-      usuario,
-      clave,
-      rol,
-    });
-
-    setCargando(false);
-
-    // Si algo falla, muestro el mensaje y no dejo pasar al usuario.
-    if (!resultado.ok) {
-      setMensajeError(resultado.mensaje);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo.trim())) {
+      setMensajeError('Escribe un correo electronico valido.');
       return;
     }
+    if (clave.length < 8) {
+      setMensajeError('La clave debe tener al menos 8 caracteres.');
+      return;
+    }
+    setCargando(true);
 
-    // Si el login fue correcto, envio al Home los datos necesarios del usuario.
-    navigation.navigate('Home', {
-      usuarioId: resultado.usuario.id,
-      usuario: resultado.usuario.usuario,
-      rol: resultado.usuario.rol,
-      nombre: resultado.usuario.nombre,
-      correo: resultado.usuario.correo,
-    });
+    // El servicio valida el correo con Supabase Auth y consulta el rol del perfil.
+    try {
+      const resultado = await iniciarSesionConRol(correo, clave);
+      if (!resultado.ok) setMensajeError(resultado.mensaje);
+      // App escucha el cambio de sesion y abre Home con el perfil validado.
+    } catch (error) {
+      setMensajeError(error instanceof Error ? error.message : 'No fue posible iniciar sesion.');
+    } finally {
+      setCargando(false);
+    }
   };
 
   return (
@@ -81,32 +53,16 @@ export default function VentanaLogin({ navigation }: Props) {
         <Text style={estilos.titulo}>Iniciar sesion</Text>
         {/* <Text style={estilos.textoAyuda}>Valida usuario, clave y rol desde la base de datos.</Text> */}
 
-        {/* Selector de rol. Cada boton cambia el rol que se va a validar. */}
-        <View style={estilos.selectorRoles}>
-          {roles.map((item) => {
-            const activo = item.valor === rol;
-            return (
-              <TouchableOpacity
-                key={item.valor}
-                style={[estilos.rol, activo && estilos.rolActivo]}
-                onPress={() => setRol(item.valor)}
-              >
-                <Text style={[estilos.rolEtiqueta, activo && estilos.rolEtiquetaActiva]}>{item.etiqueta}</Text>
-                {/* <Text style={[estilos.rolDescripcion, activo && estilos.rolDescripcionActiva]}>{item.descripcion}</Text> */}
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-
-        {/* Campo para escribir nombre de usuario o correo. */}
+        {/* Campo de correo; el rol se carga desde el perfil autenticado. */}
         <View style={estilos.grupoCampo}>
           <Text style={estilos.label}>Correo</Text>
           <TextInput
             style={estilos.campoTexto}
-            placeholder="usuario o correo"
+            placeholder="correo@ejemplo.com"
+            keyboardType="email-address"
             autoCapitalize="none"
-            value={usuario}
-            onChangeText={setUsuario}
+            value={correo}
+            onChangeText={setCorreo}
           />
         </View>
 
@@ -181,37 +137,6 @@ const estilos = StyleSheet.create({
     fontSize: 14,
     marginTop: 6,
     marginBottom: 18,
-  },
-  selectorRoles: {
-    gap: 10,
-    marginBottom: 20,
-  },
-  rol: {
-    borderWidth: 1,
-    borderColor: colores.borde,
-    borderRadius: 8,
-    padding: 14,
-    backgroundColor: colores.blanco,
-  },
-  rolActivo: {
-    backgroundColor: colores.menta,
-    borderColor: colores.verde,
-  },
-  rolEtiqueta: {
-    color: colores.tinta,
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  rolEtiquetaActiva: {
-    color: colores.verdeOscuro,
-  },
-  rolDescripcion: {
-    color: colores.textoSuave,
-    fontSize: 13,
-    marginTop: 2,
-  },
-  rolDescripcionActiva: {
-    color: colores.verde,
   },
   grupoCampo: {
     marginBottom: 16,
