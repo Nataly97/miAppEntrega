@@ -1,0 +1,14 @@
+export const colores = {
+  fondo: '#f4f7f2',
+  verdeOscuro: '#12372a',
+  verde: '#1f8f4d',
+  verdeClaro: '#dff3e6',
+  menta: '#eef8f1',
+  amarillo: '#f5c542',
+  azul: '#1f4f75',
+  tinta: '#17231d',
+  textoSuave: '#66746b',
+  blanco: '#ffffff',
+  borde: '#d8e5dc',
+  error: '#bf2f2f',
+};
