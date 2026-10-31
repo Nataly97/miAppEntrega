@@ -10,6 +10,7 @@ declare const process: {
   env: {
     EXPO_PUBLIC_SUPABASE_URL?: string;
     EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY?: string;
+    EXPO_PUBLIC_SUPABASE_KEY?: string;
   };
 };
 
@@ -17,8 +18,13 @@ type NombreColeccion = keyof ColeccionesSupabase;
 type RegistroConId = { id: string };
 export type FilaColeccion = Record<string, string | number | boolean | null> & { id: string };
 
+// Aqui conecto la app con mi proyecto de Supabase usando los datos del archivo .env.
+// La llave publica identifica la app; los permisos de cada usuario los protejo con RLS en la base de datos.
+// Nunca pongo aqui la llave secreta del servidor, porque este archivo se incluye en la aplicacion.
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
-const supabasePublishableKey = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+// Acepto tambien el nombre EXPO_PUBLIC_SUPABASE_KEY que ya usan algunas instalaciones.
+const supabasePublishableKey =
+  process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.EXPO_PUBLIC_SUPABASE_KEY;
 
 // En celular guardo los tokens cifrados; en web uso el almacenamiento del navegador.
 const almacenamientoSesion = {
@@ -42,7 +48,7 @@ export const supabase = haySupabaseConfigurado
         storage: almacenamientoSesion,
         autoRefreshToken: true,
         persistSession: true,
-        detectSessionInUrl: false,
+        detectSessionInUrl: Platform.OS === 'web',
       },
     })
   : null;
@@ -54,6 +60,16 @@ export const supabaseConfig = {
   proveedor: 'Supabase',
 };
 
+// La URL debe coincidir con una URL permitida en Supabase > Authentication > URL Configuration.
+// Preparo la URL a la que Supabase devuelve a la persona después de confirmar o recuperar su cuenta.
+export function obtenerUrlRetornoAuth() {
+  if (Platform.OS === 'web' && typeof globalThis.location !== 'undefined') {
+    return globalThis.location.origin;
+  }
+  return 'recicash://auth/callback';
+}
+
+// Organizo las filas por su identificador para consultarlas fácilmente desde la app.
 const convertirFilasARegistro = <T extends RegistroConId>(filas: T[] | null): Record<string, T> =>
   Object.fromEntries((filas ?? []).map((fila) => [fila.id, fila]));
 

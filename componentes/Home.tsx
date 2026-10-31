@@ -1,437 +1,124 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useEffect, useMemo, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import type { RootStackParamList } from '../App';
-import { coleccionesFase1, datosIniciales } from '../src/datos/modeloBaseDatos';
-import type { Cliente, RolUsuario } from '../src/modelos/baseDatos';
-import { obtenerColeccion, verificarConexionSupabase } from '../src/servicios/supabase';
 import { cerrarSesion } from '../src/servicios/autenticacion';
+import { supabase, verificarConexionSupabase } from '../src/servicios/supabase';
 import { colores } from '../src/tema/colores';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
-
-// Esta estructura define la informacion que voy a mostrar en el panel de cada rol.
-type ConfiguracionPanel = {
-  titulo: string;
-  descripcion: string;
-  metricas: { etiqueta: string; valor: number | string }[];
-  permisos: string[];
-  moduloPrincipal: {
-    titulo: string;
-    items: string[];
-  };
-};
-
-// Esta funcion arma una vista diferente segun el rol del usuario.
-// Asi centralizo permisos, metricas y modulos en un solo lugar.
-const crearConfiguracionPanel = (rol: RolUsuario, clienteReal: Cliente | null): ConfiguracionPanel => {
-  const cliente = clienteReal ?? { puntosDisponibles: 0, puntosAcumulados: 0 };
-
-  // Cada rol tiene su propio resumen, permisos y modulo principal.
-  const paneles: Record<RolUsuario, ConfiguracionPanel> = {
-    administrador: {
-      titulo: 'Panel administrador',
-      descripcion: 'Control completo de usuarios, aliados, puntos, canjes y catalogos.',
-      metricas: [
-        { etiqueta: 'Usuarios', valor: Object.keys(datosIniciales.usuarios).length },
-        { etiqueta: 'Clientes', valor: Object.keys(datosIniciales.clientes).length },
-        { etiqueta: 'Movimientos', valor: Object.keys(datosIniciales.movimientosPuntos).length },
-        { etiqueta: 'Canjes', valor: Object.keys(datosIniciales.canjes).length },
-      ],
-      permisos: [
-        'Consultar todos los clientes y empleados',
-        'Administrar materiales reciclables',
-        'Crear y editar aliados',
-        'Revisar historial completo de puntos',
-        'Aprobar o cancelar canjes',
-      ],
-      moduloPrincipal: {
-        titulo: 'Gestion general',
-        items: ['Usuarios activos', 'Aliados disponibles', 'Catalogo de recompensas', 'Auditoria de puntos'],
-      },
-    },
-    empleado: {
-      titulo: 'Panel empleado',
-      descripcion: 'Operacion en punto de atencion: clientes, reciclaje, puntos y entregas.',
-      metricas: [
-        { etiqueta: 'Clientes registrados', valor: Object.keys(datosIniciales.clientes).length },
-        { etiqueta: 'Materiales activos', valor: Object.keys(datosIniciales.materialesReciclables).length },
-        { etiqueta: 'Puntos registrados', valor: datosIniciales.movimientosPuntos.mov_001.puntos },
-        { etiqueta: 'Canjes por entregar', valor: 1 },
-      ],
-      permisos: [
-        'Crear clientes',
-        'Registrar material reciclado',
-        'Asignar puntos por entrega',
-        'Consultar clientes',
-        'Entregar canjes aprobados',
-      ],
-      moduloPrincipal: {
-        titulo: 'Operacion diaria',
-        items: ['Nuevo cliente', 'Registrar puntos', 'Buscar cliente', 'Validar recompensa'],
-      },
-    },
-    cliente: {
-      titulo: 'Panel cliente',
-      descripcion: 'Consulta tu perfil, puntos disponibles, movimientos y recompensas.',
-      metricas: [
-        { etiqueta: 'Puntos disponibles', valor: cliente.puntosDisponibles },
-        { etiqueta: 'Puntos acumulados', valor: cliente.puntosAcumulados },
-        { etiqueta: 'Canjes realizados', valor: Object.keys(datosIniciales.canjes).length },
-        { etiqueta: 'Recompensas', valor: Object.keys(datosIniciales.recompensas).length },
-      ],
-      permisos: [
-        'Ver perfil personal',
-        'Consultar historial de puntos',
-        'Consultar historial de canjes',
-        'Canjear puntos por recompensas',
-      ],
-      moduloPrincipal: {
-        titulo: 'Mis beneficios',
-        items: ['Bono de mercado disponible', 'Ultima entrega: Plastico PET', 'Canje entregado: 300 puntos'],
-      },
-    },
-  };
-
-  return paneles[rol];
+type Atajo = { titulo: string; detalle: string; grupo: string; simbolo: string };
+const nombresRoles = { administrador: 'Administración', gestor: 'Gestor de recogidas', entidad_financiera: 'Entidad financiera', cliente: 'Cliente' };
+const atajos: Record<Props['route']['params']['rol'], Atajo[]> = {
+  administrador: [
+    { titulo: 'Usuarios y roles', detalle: 'Cuentas, permisos y perfiles por tipo', grupo: 'usuarios', simbolo: '01' },
+    { titulo: 'Productos y servicios', detalle: 'Recompensas y catálogo de canjes', grupo: 'productos', simbolo: '02' },
+    { titulo: 'Puntos y canjes', detalle: 'Materiales reciclables y movimientos', grupo: 'puntos', simbolo: '03' },
+    { titulo: 'Recogidas', detalle: 'Centros de acopio y solicitudes', grupo: 'recogidas', simbolo: '04' },
+  ],
+  cliente: [
+    { titulo: 'Solicitar recogida', detalle: 'Programa el retiro de tus reciclables', grupo: 'recogidas', simbolo: '01' },
+    { titulo: 'Mis puntos', detalle: 'Consulta tu saldo e historial', grupo: 'puntos', simbolo: '02' },
+    { titulo: 'Canjes disponibles', detalle: 'Explora recompensas y arma tu carrito', grupo: 'productos', simbolo: '03' },
+  ],
+  gestor: [
+    { titulo: 'Solicitudes de recogida', detalle: 'Revisa y gestiona la operación', grupo: 'recogidas', simbolo: '01' },
+    { titulo: 'Historial de recogidas', detalle: 'Consulta el estado de cada solicitud', grupo: 'historial', simbolo: '02' },
+    { titulo: 'Reportes', detalle: 'Resumen de la operación', grupo: 'reportes', simbolo: '03' },
+  ],
+  entidad_financiera: [
+    { titulo: 'Historial de canjes', detalle: 'Canjes aprobados y entregados', grupo: 'canjes', simbolo: '01' },
+  ],
 };
 
 export default function Home({ navigation, route }: Props) {
-  // Recibo desde el login los datos del usuario autenticado.
-  const { rol, nombre, correo, usuarioId, usuario } = route.params;
-  const [estadoConexion, setEstadoConexion] = useState('Verificando conexion...');
-  const [conexionActiva, setConexionActiva] = useState(false);
-  const [cliente, setCliente] = useState<Cliente | null>(null);
+  const { rol, nombre, correo, usuarioId } = route.params;
+  const [conexion, setConexion] = useState('Verificando conexión…');
+  const [cargando, setCargando] = useState(true);
+  const [resumen, setResumen] = useState<{ etiqueta: string; valor: string }[]>([]);
 
-  // Al cargar la pantalla reviso si Supabase esta conectado.
   useEffect(() => {
-    verificarConexionSupabase().then((resultado) => {
-      setConexionActiva(resultado.ok);
-      setEstadoConexion(resultado.mensaje);
-    });
-  }, []);
+    let activo = true;
+    // Cargo el resumen del rol y muestro un mensaje si falla la consulta, sin tumbar la pantalla.
+    const cargarResumen = async () => {
+      try {
+        const estadoConexion = await verificarConexionSupabase();
+        if (activo) setConexion(estadoConexion.mensaje);
+        const clienteSupabase = supabase;
+        if (!clienteSupabase) return;
 
-  // Cargo los puntos del cliente autenticado desde su propio registro en Supabase.
-  useEffect(() => {
-    if (rol !== 'cliente') return;
-    obtenerColeccion('clientes')
-      .then((clientes) => setCliente(Object.values(clientes).find((item) => item.usuarioId === usuarioId) ?? null))
-      .catch(() => setCliente(null));
+        if (rol === 'administrador') {
+          const tablas = [['usuarios', 'Usuarios'], ['clientes', 'Clientes'], ['recompensas', 'Recompensas'], ['solicitudesRecogida', 'Recogidas']] as const;
+          const datos = await Promise.all(tablas.map(async ([tabla, etiqueta]) => {
+            const { count, error } = await clienteSupabase.from(tabla).select('*', { count: 'exact', head: true });
+            if (error) throw error;
+            return { etiqueta, valor: String(count ?? 0) };
+          }));
+          if (activo) setResumen(datos);
+        } else if (rol === 'cliente') {
+          const { data, error } = await clienteSupabase.from('clientes').select('puntosDisponibles,puntosAcumulados').eq('usuarioId', usuarioId).maybeSingle();
+          if (error) throw error;
+          if (activo) setResumen([{ etiqueta: 'Puntos disponibles', valor: String(data?.puntosDisponibles ?? 0) }, { etiqueta: 'Puntos acumulados', valor: String(data?.puntosAcumulados ?? 0) }]);
+        } else if (rol === 'gestor') {
+          const { data, error } = await clienteSupabase.rpc('lista_recogidas_gestor');
+          if (error) throw error;
+          if (activo) setResumen([{ etiqueta: 'Solicitudes por gestionar', valor: String(data?.filter((fila: { estado: string }) => fila.estado === 'pendiente').length ?? 0) }, { etiqueta: 'Recogidas asignadas', valor: String(data?.filter((fila: { estado: string }) => fila.estado === 'asignada').length ?? 0) }]);
+        } else {
+          const { data, error } = await clienteSupabase.rpc('historial_canjes_financieras');
+          if (error) throw error;
+          if (activo) setResumen([{ etiqueta: 'Canjes en historial', valor: String(data?.length ?? 0) }]);
+        }
+      } catch (error) {
+        if (activo) setConexion(error instanceof Error ? `No se pudo cargar el resumen: ${error.message}` : 'No se pudo cargar el resumen. Inténtalo de nuevo.');
+      } finally {
+        if (activo) setCargando(false);
+      }
+    };
+    void cargarResumen();
+    return () => { activo = false; };
   }, [rol, usuarioId]);
 
-  // Memorizo la configuracion para recalcularla solo si cambia el rol o usuario.
-  const panel = useMemo(() => crearConfiguracionPanel(rol, cliente), [rol, cliente]);
-
-  // Cierro la sesion guardada para que la siguiente pantalla sea el login.
   const salir = async () => {
-    try {
-      await cerrarSesion();
-    } catch (error) {
-      Alert.alert('No se pudo cerrar sesion', error instanceof Error ? error.message : 'Intenta de nuevo.');
-    }
+    try { await cerrarSesion(); }
+    catch (error) { Alert.alert('No se pudo cerrar sesión', error instanceof Error ? error.message : 'Inténtalo de nuevo.'); }
   };
 
   return (
     <ScrollView contentContainerStyle={estilos.contenedor}>
-      {/* Encabezado con nombre del usuario y boton para cerrar sesion. */}
-      <View style={estilos.header}>
-        <View style={estilos.headerTexto}>
-          <Text style={estilos.marca}>ReciCash</Text>
-          <Text style={estilos.titulo}>Hola, {nombre}</Text>
-          <Text style={estilos.subtitulo}>{panel.titulo}</Text>
+      <View style={estilos.contenido}>
+        <View style={estilos.barra}>
+          <View style={estilos.marca}><View style={estilos.logo}><Text style={estilos.logoTexto}>R</Text></View><Text style={estilos.marcaTexto}>ReciCash</Text></View>
+          <TouchableOpacity accessibilityRole="button" style={estilos.botonSalir} onPress={() => void salir()}><Text style={estilos.textoSalir}>Cerrar sesión</Text></TouchableOpacity>
         </View>
-
-        <TouchableOpacity style={estilos.botonSalir} onPress={() => void salir()}>
-          <Text style={estilos.textoBotonSalir}>Salir</Text>
-        </TouchableOpacity>
-      </View>
-
-      {rol === 'administrador' ? (
-        <TouchableOpacity style={estilos.botonGestion} onPress={() => navigation.navigate('GestionDatos')}>
-          <Text style={estilos.textoBotonGestion}>Gestionar datos de Supabase</Text>
-        </TouchableOpacity>
-      ) : null}
-
-      {/* Tarjeta con los datos basicos que fueron validados en el login. */}
-      <View style={estilos.tarjetaPerfil}>
-        <View>
-          <Text style={estilos.etiquetaPerfil}>Usuario</Text>
-          <Text style={estilos.valorPerfil}>{usuario}</Text>
+        <View style={estilos.hero}>
+          <View style={{ flex: 1 }}><Text style={estilos.saludo}>TU PANEL DE CONTROL</Text><Text style={estilos.titulo}>Hola, {nombre}</Text><Text style={estilos.subtitulo}>{nombresRoles[rol]} · {correo}</Text></View>
+          <View style={estilos.sello}><Text style={estilos.selloTexto}>♻</Text></View>
         </View>
-        <View>
-          <Text style={estilos.etiquetaPerfil}>Correo</Text>
-          <Text style={estilos.valorPerfil}>{correo}</Text>
-        </View>
-        <View>
-          <Text style={estilos.etiquetaPerfil}>Rol validado</Text>
-          <Text style={estilos.valorPerfil}>{rol}</Text>
-        </View>
-      </View>
+        <View style={estilos.estado}>{cargando ? <ActivityIndicator size="small" color={colores.verde} /> : <View style={estilos.puntoEstado} />}<Text style={estilos.estadoTexto}>{conexion}</Text></View>
 
-      {/* Estado de conexion a la base de datos. */}
-      <View style={[estilos.estadoConexion, conexionActiva ? estilos.estadoOk : estilos.estadoPendiente]}>
-        <Text style={estilos.estadoTitulo}>Base de datos</Text>
-        <Text style={estilos.estadoTexto}>{estadoConexion}</Text>
-      </View>
+        {resumen.length > 0 ? <View style={estilos.resumen}><Text style={estilos.seccionTitulo}>Resumen</Text><View style={estilos.grid}>{resumen.map((item) => <View key={item.etiqueta} style={estilos.metrica}><Text style={estilos.metricaValor}>{item.valor}</Text><Text style={estilos.metricaEtiqueta}>{item.etiqueta}</Text></View>)}</View></View> : null}
 
-      {/* Descripcion general del panel segun el rol. */}
-      <View style={estilos.seccion}>
-        <Text style={estilos.tituloSeccion}>{panel.titulo}</Text>
-        <Text style={estilos.descripcion}>{panel.descripcion}</Text>
-      </View>
+        <View style={estilos.seccionEncabezado}><View><Text style={estilos.seccionTitulo}>Tu espacio</Text><Text style={estilos.seccionSubtitulo}>Elige un módulo para continuar</Text></View><Text style={estilos.contador}>{atajos[rol].length} MÓDULOS</Text></View>
+        <View style={estilos.menu}>{atajos[rol].map((item) => <TouchableOpacity key={item.grupo} accessibilityRole="button" style={estilos.tarjeta} onPress={() => navigation.navigate('GestionDatos', { grupo: item.grupo, usuarioId, rol })}>
+          <View style={estilos.icono}><Text style={estilos.iconoTexto}>{item.simbolo}</Text></View><View style={estilos.tarjetaTexto}><Text style={estilos.tarjetaTitulo}>{item.titulo}</Text><Text style={estilos.tarjetaDetalle}>{item.detalle}</Text></View><Text style={estilos.flecha}>›</Text>
+        </TouchableOpacity>)}</View>
 
-      {/* Metricas principales de cada rol. */}
-      <View style={estilos.resumenGrid}>
-        {panel.metricas.map((item) => (
-          <View key={item.etiqueta} style={estilos.tarjetaResumen}>
-            <Text style={estilos.valorResumen}>{item.valor}</Text>
-            <Text style={estilos.etiquetaResumen}>{item.etiqueta}</Text>
-          </View>
-        ))}
+        <View style={estilos.pie}><Text style={estilos.pieMarca}>ReciCash</Text><Text style={estilos.pieTexto}>Reciclar, sumar y transformar.</Text><Text style={estilos.pieLegal}>Sesión protegida · {usuarioId.slice(0, 8)}</Text></View>
       </View>
-
-      {/* Lista de permisos que tendra este rol en el sistema. */}
-      <View style={estilos.seccion}>
-        <Text style={estilos.tituloSeccion}>Permisos disponibles</Text>
-        <View style={estilos.listaAcciones}>
-          {panel.permisos.map((permiso) => (
-            <View key={permiso} style={estilos.accion}>
-              <View style={estilos.puntoAccion} />
-              <Text style={estilos.textoAccion}>{permiso}</Text>
-            </View>
-          ))}
-        </View>
-      </View>
-
-      {/* Acciones o accesos principales para el rol actual. */}
-      <View style={estilos.seccion}>
-        <Text style={estilos.tituloSeccion}>{panel.moduloPrincipal.titulo}</Text>
-        <View style={estilos.modulos}>
-          {panel.moduloPrincipal.items.map((item) => (
-            <TouchableOpacity key={item} style={estilos.modulo}>
-              <Text style={estilos.textoModulo}>{item}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-
-      {/* Solo el administrador ve el modelo completo de colecciones. */}
-      {rol === 'administrador' ? (
-        <View style={estilos.seccion}>
-          <Text style={estilos.tituloSeccion}>Modelo de datos fase 1</Text>
-          <View style={estilos.colecciones}>
-            {coleccionesFase1.map((coleccion) => (
-              <Text key={coleccion} style={estilos.coleccion}>
-                {coleccion}
-              </Text>
-            ))}
-          </View>
-        </View>
-      ) : null}
     </ScrollView>
   );
 }
 
-// Estilos de Home. Uso tarjetas sencillas para que cada bloque se entienda facil.
 const estilos = StyleSheet.create({
-  contenedor: {
-    flexGrow: 1,
-    backgroundColor: colores.fondo,
-    padding: 22,
-    paddingTop: 56,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 16,
-    marginBottom: 18,
-  },
-  headerTexto: {
-    flex: 1,
-  },
-  marca: {
-    color: colores.verde,
-    fontSize: 15,
-    fontWeight: '900',
-    textTransform: 'uppercase',
-  },
-  titulo: {
-    color: colores.tinta,
-    fontSize: 30,
-    fontWeight: '900',
-    marginTop: 4,
-  },
-  subtitulo: {
-    color: colores.textoSuave,
-    fontSize: 15,
-    marginTop: 4,
-    textTransform: 'capitalize',
-  },
-  botonSalir: {
-    minWidth: 72,
-    height: 42,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colores.borde,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colores.blanco,
-  },
-  textoBotonSalir: {
-    color: colores.verdeOscuro,
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  botonGestion: {
-    minHeight: 48,
-    borderRadius: 8,
-    backgroundColor: colores.verde,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 18,
-  },
-  textoBotonGestion: {
-    color: colores.blanco,
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  tarjetaPerfil: {
-    backgroundColor: colores.blanco,
-    borderRadius: 8,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: colores.borde,
-    gap: 12,
-    marginBottom: 18,
-  },
-  etiquetaPerfil: {
-    color: colores.textoSuave,
-    fontSize: 12,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-  },
-  valorPerfil: {
-    color: colores.tinta,
-    fontSize: 15,
-    fontWeight: '800',
-    marginTop: 2,
-  },
-  estadoConexion: {
-    borderRadius: 8,
-    padding: 16,
-    borderWidth: 1,
-    marginBottom: 18,
-  },
-  estadoOk: {
-    backgroundColor: colores.verdeClaro,
-    borderColor: colores.verde,
-  },
-  estadoPendiente: {
-    backgroundColor: '#fff8df',
-    borderColor: colores.amarillo,
-  },
-  estadoTitulo: {
-    color: colores.tinta,
-    fontSize: 15,
-    fontWeight: '900',
-  },
-  estadoTexto: {
-    color: colores.textoSuave,
-    fontSize: 14,
-    lineHeight: 20,
-    marginTop: 4,
-  },
-  seccion: {
-    backgroundColor: colores.blanco,
-    borderRadius: 8,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: colores.borde,
-    marginBottom: 18,
-  },
-  tituloSeccion: {
-    color: colores.tinta,
-    fontSize: 18,
-    fontWeight: '900',
-    marginBottom: 10,
-  },
-  descripcion: {
-    color: colores.textoSuave,
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  resumenGrid: {
-    gap: 12,
-    marginBottom: 18,
-  },
-  tarjetaResumen: {
-    backgroundColor: colores.blanco,
-    borderRadius: 8,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: colores.borde,
-  },
-  valorResumen: {
-    color: colores.verdeOscuro,
-    fontSize: 28,
-    fontWeight: '900',
-  },
-  etiquetaResumen: {
-    color: colores.textoSuave,
-    fontSize: 14,
-    marginTop: 4,
-  },
-  listaAcciones: {
-    gap: 10,
-  },
-  accion: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  puntoAccion: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: colores.amarillo,
-  },
-  textoAccion: {
-    color: colores.tinta,
-    flex: 1,
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  modulos: {
-    gap: 10,
-  },
-  modulo: {
-    minHeight: 48,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colores.borde,
-    justifyContent: 'center',
-    paddingHorizontal: 14,
-    backgroundColor: colores.menta,
-  },
-  textoModulo: {
-    color: colores.verdeOscuro,
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  colecciones: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  coleccion: {
-    backgroundColor: colores.menta,
-    color: colores.verdeOscuro,
-    borderRadius: 8,
-    overflow: 'hidden',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    fontSize: 13,
-    fontWeight: '800',
-  },
+  contenedor: { flexGrow: 1, backgroundColor: colores.fondo, padding: 20, paddingTop: 30 },
+  contenido: { width: '100%', maxWidth: 1060, alignSelf: 'center' },
+  barra: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 },
+  marca: { flexDirection: 'row', alignItems: 'center', gap: 9 }, logo: { width: 34, height: 34, borderRadius: 11, backgroundColor: colores.azulOscuro, alignItems: 'center', justifyContent: 'center' }, logoTexto: { color: colores.blanco, fontWeight: '900', fontSize: 18 }, marcaTexto: { color: colores.azulOscuro, fontSize: 16, fontWeight: '900', letterSpacing: 0.5 },
+  botonSalir: { minHeight: 40, justifyContent: 'center', paddingHorizontal: 14, borderRadius: 10, backgroundColor: colores.blanco, borderWidth: 1, borderColor: colores.borde }, textoSalir: { color: colores.azulOscuro, fontSize: 13, fontWeight: '800' },
+  hero: { backgroundColor: colores.azulOscuro, borderRadius: 22, padding: 26, flexDirection: 'row', alignItems: 'center', marginBottom: 14, overflow: 'hidden' }, saludo: { color: '#b9c5ff', fontSize: 11, fontWeight: '900', letterSpacing: 1.4 }, titulo: { color: colores.blanco, fontSize: 31, fontWeight: '900', marginTop: 8 }, subtitulo: { color: '#d7dcf7', fontSize: 14, marginTop: 6 }, sello: { width: 74, height: 74, borderRadius: 25, backgroundColor: '#24264f', alignItems: 'center', justifyContent: 'center', marginLeft: 16 }, selloTexto: { color: '#8fe1ad', fontSize: 38 },
+  estado: { flexDirection: 'row', alignItems: 'center', gap: 9, padding: 12, backgroundColor: colores.blanco, borderRadius: 12, marginBottom: 23, borderWidth: 1, borderColor: colores.borde }, puntoEstado: { width: 9, height: 9, borderRadius: 5, backgroundColor: colores.verde }, estadoTexto: { color: colores.textoSuave, flex: 1, fontSize: 12 },
+  resumen: { marginBottom: 24 }, seccionEncabezado: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }, seccionTitulo: { color: colores.azulOscuro, fontSize: 20, fontWeight: '900' }, seccionSubtitulo: { color: colores.textoSuave, fontSize: 13, marginTop: 3 }, contador: { color: colores.azulOscuro, backgroundColor: '#e7e9f5', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 7, fontSize: 10, fontWeight: '900' },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 10 }, metrica: { flexGrow: 1, minWidth: 140, backgroundColor: colores.blanco, borderRadius: 14, padding: 15, borderWidth: 1, borderColor: colores.borde }, metricaValor: { color: colores.azulOscuro, fontSize: 25, fontWeight: '900' }, metricaEtiqueta: { color: colores.textoSuave, fontSize: 12, marginTop: 4 },
+  menu: { gap: 10 }, tarjeta: { flexDirection: 'row', alignItems: 'center', gap: 13, minHeight: 82, padding: 14, backgroundColor: colores.blanco, borderWidth: 1, borderColor: colores.borde, borderRadius: 15 }, icono: { width: 46, height: 46, alignItems: 'center', justifyContent: 'center', borderRadius: 14, backgroundColor: '#eff0fa' }, iconoTexto: { color: colores.azulOscuro, fontSize: 14, fontWeight: '900' }, tarjetaTexto: { flex: 1 }, tarjetaTitulo: { color: colores.azulOscuro, fontSize: 15, fontWeight: '900' }, tarjetaDetalle: { color: colores.textoSuave, fontSize: 12, marginTop: 4, lineHeight: 17 }, flecha: { color: colores.verde, fontSize: 29, fontWeight: '500', paddingHorizontal: 4 },
+  pie: { alignItems: 'center', marginTop: 26, paddingVertical: 17, borderTopWidth: 1, borderTopColor: colores.borde }, pieMarca: { color: colores.azulOscuro, fontWeight: '900', fontSize: 13 }, pieTexto: { color: colores.textoSuave, fontSize: 12, marginTop: 4 }, pieLegal: { color: '#8a968e', fontSize: 10, marginTop: 8 },
 });

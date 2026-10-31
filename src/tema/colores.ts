@@ -6,6 +6,7 @@ export const colores = {
   menta: '#eef8f1',
   amarillo: '#f5c542',
   azul: '#1f4f75',
+  azulOscuro: '#0c0d37',
   tinta: '#17231d',
   textoSuave: '#66746b',
   blanco: '#ffffff',

@@ -2,7 +2,7 @@
 
 Proveedor elegido: Supabase.
 
-La app lee la configuracion desde `EXPO_PUBLIC_SUPABASE_URL` y `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. Para configurarlo, crea un archivo `.env` en la raiz de `miAppEntrega` tomando como base `.env.example`.
+La app lee `EXPO_PUBLIC_SUPABASE_URL` y `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (también acepta el alias existente `EXPO_PUBLIC_SUPABASE_KEY`). Crea un archivo `.env` en la raíz; la URL debe ser la raíz del proyecto, sin `/rest/v1`.
 
 ## Colecciones
 
@@ -15,11 +15,11 @@ Campos:
 - `nombre`: nombre visible.
 - `usuario`: nombre de usuario para iniciar sesion.
 - `correo`: correo de acceso.
-- `rol`: `administrador`, `empleado` o `cliente`.
+- `rol`: `administrador`, `gestor`, `entidad_financiera` o `cliente`.
 - `activo`: estado de la cuenta.
 - `fechaCreacion`: fecha de registro.
 
-Las claves se administran en Supabase Auth y no se guardan en la tabla `usuarios`. Las cuentas administrativas y de empleados se crean primero en Supabase Auth y luego se les asigna su rol en el perfil.
+Las claves se administran en Supabase Auth y no se guardan en la tabla `usuarios`. El registro público crea clientes; el administrador crea cuentas internas usando una Edge Function con clave de servidor.
 
 ### clientes
 
@@ -113,92 +113,11 @@ Campos:
 
 El archivo `src/datos/modeloBaseDatos.ts` contiene datos de ejemplo usados en las metricas de la interfaz. No los cargues como usuarios reales: las cuentas deben crearse en Supabase Auth y vincularse con sus perfiles.
 
-## SQL inicial
+## Esquema completo
 
-En el SQL Editor de Supabase puedes crear las tablas con estos nombres y campos para que coincidan con el codigo actual de la app:
+En el SQL Editor de un proyecto Supabase nuevo ejecuta [supabase/esquema_inicial.sql](../supabase/esquema_inicial.sql). Este unico archivo crea las diez tablas, sus relaciones, indices unicos, funciones, triggers, permisos y politicas RLS. Al final comprueba que las diez tablas tengan RLS activa y politicas registradas.
 
-```sql
-create table usuarios (
-  id text primary key,
-  nombre text not null,
-  usuario text not null,
-  correo text not null,
-  rol text not null check (rol in ('administrador', 'empleado', 'cliente')),
-  activo boolean not null default true,
-  "fechaCreacion" text not null
-);
-
-create table clientes (
-  id text primary key,
-  "usuarioId" text not null references usuarios(id),
-  documento text not null,
-  telefono text not null,
-  direccion text not null,
-  "puntosDisponibles" integer not null default 0,
-  "puntosAcumulados" integer not null default 0
-);
-
-create table "materialesReciclables" (
-  id text primary key,
-  nombre text not null,
-  "unidadMedida" text not null check ("unidadMedida" in ('kg', 'unidad')),
-  "puntosPorUnidad" integer not null,
-  activo boolean not null default true
-);
-
-create table "movimientosPuntos" (
-  id text primary key,
-  "clienteId" text not null references clientes(id),
-  "empleadoId" text not null references usuarios(id),
-  "materialId" text references "materialesReciclables"(id),
-  tipo text not null check (tipo in ('acumulacion', 'canje', 'ajuste')),
-  "cantidadMaterial" numeric,
-  puntos integer not null,
-  descripcion text not null,
-  fecha text not null
-);
-
-create table aliados (
-  id text primary key,
-  nombre text not null,
-  categoria text not null,
-  ciudad text not null,
-  activo boolean not null default true
-);
-
-create table recompensas (
-  id text primary key,
-  "aliadoId" text not null references aliados(id),
-  nombre text not null,
-  descripcion text not null,
-  "puntosRequeridos" integer not null,
-  stock integer not null,
-  activo boolean not null default true
-);
-
-create table canjes (
-  id text primary key,
-  "clienteId" text not null references clientes(id),
-  "recompensaId" text not null references recompensas(id),
-  "empleadoId" text references usuarios(id),
-  "puntosUsados" integer not null,
-  estado text not null check (estado in ('pendiente', 'aprobado', 'entregado', 'cancelado')),
-  "fechaSolicitud" text not null,
-  "fechaEntrega" text
-);
-
-create table "centrosAcopio" (
-  id text primary key,
-  nombre text not null,
-  direccion text not null,
-  ciudad text not null,
-  activo boolean not null default true
-);
-```
-
-## Configuracion final de autenticacion y RLS
-
-Despues de crear las tablas, ejecuta [`supabase/entrega_final.sql`](../supabase/entrega_final.sql) en el SQL Editor de Supabase. El script quita la columna de claves en texto plano, crea los perfiles de cliente desde Supabase Auth y aplica politicas RLS para separar operaciones de clientes, empleados y administradores. No se deben habilitar politicas de lectura o escritura publica para `anon`.
+El esquema esta preparado para una instalacion nueva. No lo ejecutes encima de una base que ya tenga datos. Las contrasenas se guardan unicamente en Supabase Auth; la tabla usuarios conserva el perfil y el rol. La Edge Function que crea cuentas internas se despliega aparte con Supabase CLI.
 
 ## Relacion entre entidades
 
@@ -208,4 +127,7 @@ Despues de crear las tablas, ejecuta [`supabase/entrega_final.sql`](../supabase/
 - `aliados` 1 a muchos `recompensas`.
 - `clientes` 1 a muchos `canjes`.
 - `recompensas` 1 a muchos `canjes`.
-- `usuarios` con rol empleado puede registrar `movimientosPuntos` y entregar `canjes`.
+- `usuarios` con rol gestor puede operar solicitudes de recogida.
+- `usuarios` con rol entidad financiera puede consultar el historial aprobado/finalizado de canjes.
+- `solicitudesRecogida` relaciona cada recogida con un cliente y restringe al gestor la edición del estado.
+- `entidadesFinancieras` enlaza el perfil financiero con su cuenta de Supabase Auth.

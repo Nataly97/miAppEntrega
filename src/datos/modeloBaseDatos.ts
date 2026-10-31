@@ -11,6 +11,8 @@ export const coleccionesFase1 = [
   'recompensas',
   'canjes',
   'centrosAcopio',
+  'solicitudesRecogida',
+  'entidadesFinancieras',
 ] as const;
 
 // Estos son datos iniciales para probar la app sin depender todavia de Supabase.
@@ -32,7 +34,7 @@ export const datosIniciales: ColeccionesSupabase = {
       nombre: 'Empleado Punto Verde',
       usuario: 'empleado',
       correo: 'empleado@ecopuntos.com',
-      rol: 'empleado',
+      rol: 'gestor',
       activo: true,
       fechaCreacion: '2026-10-06',
     },
@@ -103,7 +105,8 @@ export const datosIniciales: ColeccionesSupabase = {
   recompensas: {
     recompensa_001: {
       id: 'recompensa_001',
-      aliadoId: 'aliado_001',
+      gestorId: 'empleado_001',
+      aliadoId: null,
       nombre: 'Bono de mercado',
       descripcion: 'Bono redimible en productos seleccionados.',
       puntosRequeridos: 1000,
@@ -133,5 +136,11 @@ export const datosIniciales: ColeccionesSupabase = {
       ciudad: 'Medellin',
       activo: true,
     },
+  },
+  solicitudesRecogida: {
+    solicitud_ejemplo: { id: 'solicitud_ejemplo', clienteId: 'cliente_001', direccion: 'Dirección de ejemplo', fechaSolicitada: '2026-10-27T12:00:00.000Z', observaciones: '', estado: 'pendiente', fechaCreacion: '2026-10-27T12:00:00.000Z' },
+  },
+  entidadesFinancieras: {
+    entidad_ejemplo: { id: 'entidad_ejemplo', usuarioId: 'usuario_ejemplo', nombre: 'Entidad financiera', identificacion: 'NIT de ejemplo', activo: true },
   },
 };

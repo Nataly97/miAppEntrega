@@ -2,7 +2,7 @@
 // La idea es tener una guia clara de que campos debe tener cada entidad.
 
 // Roles permitidos en el sistema. Cada rol tiene permisos diferentes en la app.
-export type RolUsuario = 'administrador' | 'empleado' | 'cliente';
+export type RolUsuario = 'administrador' | 'gestor' | 'entidad_financiera' | 'cliente';
 
 // Estados posibles para un canje.
 export type EstadoCanje = 'pendiente' | 'aprobado' | 'entregado' | 'cancelado';
@@ -18,6 +18,7 @@ export type Usuario = {
   correo: string;
   rol: RolUsuario;
   activo: boolean;
+  confirmacionPendiente?: boolean;
   fechaCreacion: string;
 };
 
@@ -66,7 +67,8 @@ export type Aliado = {
 // Recompensa es un producto, servicio o bono que se puede comprar con puntos.
 export type Recompensa = {
   id: string;
-  aliadoId: string;
+  gestorId?: string | null;
+  aliadoId?: string | null;
   nombre: string;
   descripcion: string;
   puntosRequeridos: number;
@@ -95,6 +97,25 @@ export type CentroAcopio = {
   activo: boolean;
 };
 
+export type SolicitudRecogida = {
+  id: string;
+  clienteId: string;
+  gestorId?: string;
+  direccion: string;
+  fechaSolicitada: string;
+  observaciones: string;
+  estado: 'pendiente' | 'asignada' | 'completada' | 'cancelada';
+  fechaCreacion: string;
+};
+
+export type EntidadFinanciera = {
+  id: string;
+  usuarioId: string;
+  nombre: string;
+  identificacion: string;
+  activo: boolean;
+};
+
 // Este tipo resume todas las tablas que espero tener en Supabase.
 export type ColeccionesSupabase = {
   usuarios: Record<string, Usuario>;
@@ -105,4 +126,6 @@ export type ColeccionesSupabase = {
   recompensas: Record<string, Recompensa>;
   canjes: Record<string, Canje>;
   centrosAcopio: Record<string, CentroAcopio>;
+  solicitudesRecogida: Record<string, SolicitudRecogida>;
+  entidadesFinancieras: Record<string, EntidadFinanciera>;
 };
