@@ -2,7 +2,8 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import type { RootStackParamList } from '../App';
-import { iniciarSesionConRol } from '../src/servicios/autenticacion';
+import type { RolUsuario } from '../src/modelos/baseDatos';
+import { iniciarSesionConRol, mensajeAutenticacion, solicitarRestablecimientoClave } from '../src/servicios/autenticacion';
 import { colores } from '../src/tema/colores';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
@@ -11,8 +12,24 @@ export default function VentanaLogin({ navigation }: Props) {
   // Guardo lo que la persona escribe y el estado de la solicitud de acceso.
   const [correo, setCorreo] = useState('');
   const [clave, setClave] = useState('');
+  const [rolSeleccionado, setRolSeleccionado] = useState<RolUsuario>('cliente');
   const [mensajeError, setMensajeError] = useState('');
   const [cargando, setCargando] = useState(false);
+  const [enviandoRecuperacion, setEnviandoRecuperacion] = useState(false);
+  const [mensajeRecuperacion, setMensajeRecuperacion] = useState('');
+
+  const recuperarClave = async () => {
+    setMensajeRecuperacion('');
+    setEnviandoRecuperacion(true);
+    try {
+      await solicitarRestablecimientoClave(correo);
+      setMensajeRecuperacion('Si el correo corresponde a una cuenta, recibirás un enlace para cambiar la contraseña. Revisa también spam.');
+    } catch (error) {
+      setMensajeRecuperacion(mensajeAutenticacion(error));
+    } finally {
+      setEnviandoRecuperacion(false);
+    }
+  };
 
   // Esta funcion se ejecuta cuando presiono "Entrar al panel".
   // Valido el correo y la clave; el rol se consulta despues en el perfil de Supabase.
@@ -30,11 +47,11 @@ export default function VentanaLogin({ navigation }: Props) {
 
     // El servicio valida el correo con Supabase Auth y consulta el rol del perfil.
     try {
-      const resultado = await iniciarSesionConRol(correo, clave);
+      const resultado = await iniciarSesionConRol(correo, clave, rolSeleccionado);
       if (!resultado.ok) setMensajeError(resultado.mensaje);
       // App escucha el cambio de sesion y abre Home con el perfil validado.
     } catch (error) {
-      setMensajeError(error instanceof Error ? error.message : 'No fue posible iniciar sesion.');
+      setMensajeError(mensajeAutenticacion(error));
     } finally {
       setCargando(false);
     }
@@ -53,7 +70,26 @@ export default function VentanaLogin({ navigation }: Props) {
         <Text style={estilos.titulo}>Iniciar sesion</Text>
         {/* <Text style={estilos.textoAyuda}>Valida usuario, clave y rol desde la base de datos.</Text> */}
 
-        {/* Campo de correo; el rol se carga desde el perfil autenticado. */}
+        <View style={estilos.grupoCampo}>
+          <Text style={estilos.label}>Ingresar como</Text>
+          <View style={estilos.roles}>
+            {([
+              ['cliente', 'Cliente'],
+              ['gestor', 'Gestor'],
+              ['entidad_financiera', 'Entidad financiera'],
+              ['administrador', 'Administrador'],
+            ] as const).map(([rol, etiqueta]) => (
+              <TouchableOpacity key={rol} accessibilityRole="radio" accessibilityState={{ selected: rolSeleccionado === rol }}
+                style={[estilos.rol, rolSeleccionado === rol && estilos.rolActivo]}
+                onPress={() => setRolSeleccionado(rol)}>
+                <Text style={[estilos.textoRol, rolSeleccionado === rol && estilos.textoRolActivo]}>{etiqueta}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <Text style={estilos.ayudaRol}>El rol debe coincidir con el asignado a tu cuenta.</Text>
+        </View>
+
+        {/* Campo de correo; el rol se verifica con el perfil autenticado. */}
         <View style={estilos.grupoCampo}>
           <Text style={estilos.label}>Correo</Text>
           <TextInput
@@ -65,6 +101,11 @@ export default function VentanaLogin({ navigation }: Props) {
             onChangeText={setCorreo}
           />
         </View>
+
+        <TouchableOpacity onPress={() => void recuperarClave()} disabled={enviandoRecuperacion}>
+          <Text style={estilos.enlaceRecuperar}>{enviandoRecuperacion ? 'Enviando enlace…' : '¿Olvidaste tu contraseña?'}</Text>
+        </TouchableOpacity>
+        {mensajeRecuperacion ? <Text style={estilos.mensajeRecuperacion}>{mensajeRecuperacion}</Text> : null}
 
         {/* Campo de clave. Uso secureTextEntry para ocultar lo que se escribe. */}
         <View style={estilos.grupoCampo}>
@@ -141,6 +182,14 @@ const estilos = StyleSheet.create({
   grupoCampo: {
     marginBottom: 16,
   },
+  roles: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  rol: { borderWidth: 1, borderColor: colores.borde, backgroundColor: colores.blanco, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 9 },
+  rolActivo: { borderColor: colores.verde, backgroundColor: colores.menta },
+  textoRol: { color: colores.tinta, fontSize: 13, fontWeight: '700' },
+  textoRolActivo: { color: colores.verdeOscuro },
+  ayudaRol: { color: colores.textoSuave, fontSize: 12, marginTop: 6 },
+  enlaceRecuperar: { color: colores.verdeOscuro, fontSize: 14, fontWeight: '700', textAlign: 'right', marginTop: -8, marginBottom: 14 },
+  mensajeRecuperacion: { color: colores.tinta, fontSize: 13, marginBottom: 12 },
   label: {
     color: colores.tinta,
     fontSize: 14,

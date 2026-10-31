@@ -1,19 +1,19 @@
 # ReciCash
 
-Aplicacion movil construida con Expo SDK 57, React Native y Supabase. Permite crear cuentas de cliente, iniciar sesion, mantener la sesion en el dispositivo y gestionar las tablas operativas de la base de datos.
+Aplicación móvil y web para gestionar recogidas de reciclaje, puntos y canjes. Está hecha con Expo SDK 57, React Native, TypeScript y Supabase.
 
 ## Requisitos
 
-- Node.js 22.13 o superior, segun Expo SDK 57.
-- Una cuenta y un proyecto de Supabase.
-- Expo Go actualizado o un emulador Android/iOS.
+- Node.js 22.13 o superior y npm.
+- Un proyecto Supabase.
+- Expo Go actualizado o un emulador si se ejecuta en Android/iOS.
 
-## Preparar Supabase
+## Preparar Supabase desde cero
 
-1. En el SQL Editor de Supabase, ejecuta el esquema inicial descrito en [`docs/base-datos-fase-1.md`](docs/base-datos-fase-1.md).
-2. Ejecuta [`supabase/entrega_final.sql`](supabase/entrega_final.sql) para configurar Supabase Auth, el perfil de cliente y las politicas RLS. El script elimina la columna antigua `usuarios.clave`, porque las contrasenas se validan con Supabase Auth.
-3. En Authentication, revisa la confirmacion de correo. Si esta activa, la persona tendra que confirmar su correo antes de iniciar sesion.
-4. Crea una cuenta desde la aplicacion para obtener un perfil. Para asignar el rol de administracion al primer usuario, ejecuta en SQL Editor cambiando el correo:
+1. Crea un proyecto Supabase.
+2. En **SQL Editor**, ejecuta una sola vez [`supabase/esquema_inicial.sql`](supabase/esquema_inicial.sql). El archivo crea las tablas, relaciones, funciones, triggers, permisos RLS y comprueba al final que RLS esté habilitada.
+3. En **Authentication > URL Configuration**, configura las URL de retorno de la aplicación. En **Authentication > Providers > Email**, activa la confirmación de correo.
+4. Crea la primera cuenta desde la aplicación. Para darle el rol administrador inicial, cambia el correo en esta consulta y ejecútala en SQL Editor:
 
    ```sql
    update public.usuarios
@@ -21,36 +21,76 @@ Aplicacion movil construida con Expo SDK 57, React Native y Supabase. Permite cr
    where correo = 'tu-correo@ejemplo.com';
    ```
 
-   Las cuentas nuevas se registran como clientes. Los perfiles de empleados y administradores se crean y asignan desde el panel de Supabase.
-
-## Configurar la app
-
-1. Copia `.env.example` como `.env` en la raiz del proyecto.
-2. Reemplaza los valores con la URL del proyecto y la publishable key desde **Project Settings > API Keys** en Supabase.
-3. Instala las dependencias y levanta Expo:
+5. Despliega la Edge Function que permite al administrador gestionar cuentas. Para ello instala/inicia Supabase CLI y vincula el proyecto; luego ejecuta:
 
    ```bash
-   npm install
-   npx expo start
+   npx supabase login
+   npx supabase link --project-ref TU_PROJECT_REF
+   npx supabase functions deploy admin-gestionar-usuario
    ```
 
-Para abrir una plataforma directamente, usa `npx expo start --android`, `npx expo start --ios` o `npx expo start --web`.
+   La función utiliza las variables seguras que Supabase entrega a Edge Functions. No publiques ni pongas la llave secreta del servidor en la aplicación.
 
-La publishable key se puede incluir en la app cliente; las politicas RLS protegen las filas. Nunca incluyas una `service_role` key ni otra clave secreta en variables `EXPO_PUBLIC_*`.
+> `esquema_inicial.sql` está preparado para instalar ReciCash en un proyecto Supabase nuevo y vacío. No lo ejecutes encima de una base que ya tenga datos; este repositorio no modifica tu proyecto remoto.
 
-## Funciones disponibles
+## Clonar, configurar y ejecutar
 
-- Inicio y cierre de sesion con Supabase Auth.
-- Persistencia de sesion con almacenamiento seguro del dispositivo en Android/iOS.
-- Registro de clientes con validacion de correo y clave de minimo ocho caracteres.
-- Gestion CRUD, busqueda y listado para clientes, materiales, movimientos, aliados, recompensas, canjes y centros de acopio. El acceso se limita a administradores y las politicas de la base validan permisos.
-- La tabla `usuarios` almacena el perfil y el rol, no las contrasenas; las cuentas se administran con Supabase Auth.
+```bash
+git clone URL_DEL_REPOSITORIO
+cd miAppEntrega
+npm ci
+```
 
-## Estructura
+Copia `.env.example` como `.env` y completa la URL y la llave pública del proyecto Supabase. La URL debe ser la raíz del proyecto, sin `/rest/v1`:
 
-- `componentes/`: pantallas y formularios.
-- `src/servicios/`: autenticacion y acceso a Supabase.
-- `src/modelos/`: tipos de las entidades.
-- `src/datos/`: datos de ejemplo para metricas y prototipos locales.
-- `docs/`: modelo de datos y relaciones.
-- `supabase/`: configuracion SQL de autenticacion y RLS.
+```env
+EXPO_PUBLIC_SUPABASE_URL=https://tu-proyecto.supabase.co
+EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=tu_publishable_key
+```
+
+Inicia la aplicación:
+
+```bash
+npm start
+```
+
+Para abrir directamente en web o en un dispositivo conectado:
+
+```bash
+npm run web
+npm run android
+npm run ios
+```
+
+Para revisar los tipos de TypeScript sin iniciar Expo:
+
+```bash
+npm run typecheck
+```
+
+La llave publishable se puede incluir en la aplicación. Los accesos a datos se protegen con las políticas RLS. Nunca agregues `service_role`, `secret key` ni contraseñas al archivo `.env` con prefijo `EXPO_PUBLIC_`.
+
+## Módulos y permisos
+
+- **Clientes:** solicitan recogidas, consultan sus puntos e historial y realizan canjes.
+- **Gestores/aliados:** consultan y gestionan recogidas asignadas, pueden crear solicitudes y asignarlas a gestores activos.
+- **Entidades financieras:** consultan el historial permitido de canjes.
+- **Administradores:** gestionan usuarios, catálogos, puntos, canjes y recogidas.
+
+El registro abierto crea clientes. Las cuentas internas se crean desde Usuarios y roles. Supabase Auth administra contraseñas y sesiones; `public.usuarios` guarda el perfil y el rol, nunca la contraseña.
+
+## Organización del proyecto
+
+- [`componentes/`](componentes/): pantallas, formularios y módulos de la aplicación.
+- [`src/servicios/`](src/servicios/): conexión con Supabase y operaciones de autenticación y datos.
+- [`src/modelos/`](src/modelos/): tipos que describen las tablas y perfiles.
+- [`src/datos/`](src/datos/): datos de ejemplo usados por la interfaz; no se cargan como usuarios reales en Supabase.
+- [`supabase/`](supabase/): esquema de base de datos y Edge Functions.
+- [`docs/`](docs/): descripción del modelo y revisión de requisitos de entrega.
+
+La conexión se configura en [`src/servicios/supabase.ts`](src/servicios/supabase.ts): ahí leo las variables de `.env` y creo el cliente Supabase. La llave pública permite iniciar la conexión desde la app; las políticas RLS deciden qué datos puede consultar o cambiar cada rol.
+
+## Documentación adicional
+
+- [Revisión de rúbrica y permisos](docs/entrega-rubrica.md)
+- [Modelo de base de datos](docs/base-datos-fase-1.md)

@@ -41,7 +41,7 @@ export default function VentanaRegistro({ navigation }: Props) {
     try {
       const resultado = await registrarCliente({ nombre, usuario, correo, clave, documento, telefono, direccion });
       setMensaje(resultado.requiereConfirmacion
-        ? 'Cuenta creada. Revisa tu correo para confirmar el registro antes de iniciar sesion.'
+        ? 'Cuenta creada. Supabase aceptó la solicitud de confirmación. Revisa tu correo y spam antes de iniciar sesión.'
         : 'Cuenta creada. Ya puedes iniciar sesion.');
       setRegistroCorrecto(true);
     } catch (error) {

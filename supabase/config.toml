@@ -1,0 +1,4 @@
+project_id = "recicash"
+
+[functions.admin-gestionar-usuario]
+verify_jwt = true
