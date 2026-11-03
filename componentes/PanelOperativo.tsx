@@ -8,6 +8,7 @@ type Props = { rol: RolUsuario; usuarioId: string; seccion?: string };
 type Registro = Record<string, any>;
 type ClienteParaRecogida = { id: string; nombre: string; documento: string; telefono: string };
 type GestorParaRecogida = { id: string; nombre: string; usuario: string; correo: string };
+type MaterialParaPuntos = { id: string; nombre: string; unidadMedida: 'kg' | 'unidad'; puntosPorUnidad: number; activo: boolean };
 type DialogoAccion = { tipo: 'confirmacion' | 'resultado'; titulo: string; mensaje: string; textoConfirmar?: string; error?: string; accion?: () => Promise<string> };
 
 // Explico los errores más comunes al guardar una recogida.
@@ -50,9 +51,16 @@ export default function PanelOperativo({ rol, usuarioId, seccion = 'todos' }: Pr
   const [recogidas, setRecogidas] = useState<Registro[]>([]);
   const [clientesParaRecogida, setClientesParaRecogida] = useState<ClienteParaRecogida[]>([]);
   const [gestoresParaRecogida, setGestoresParaRecogida] = useState<GestorParaRecogida[]>([]);
+  const [materialesParaPuntos, setMaterialesParaPuntos] = useState<MaterialParaPuntos[]>([]);
   const [clienteRecogidaSeleccionado, setClienteRecogidaSeleccionado] = useState('');
   const [gestorRecogidaSeleccionado, setGestorRecogidaSeleccionado] = useState(usuarioId);
-  const [selectorRecogidaVisible, setSelectorRecogidaVisible] = useState<'cliente' | 'gestor' | null>(null);
+  const [selectorRecogidaVisible, setSelectorRecogidaVisible] = useState<'cliente' | 'gestor' | 'material' | null>(null);
+  const [solicitudParaCompletar, setSolicitudParaCompletar] = useState<Registro | null>(null);
+  const [materialSeleccionado, setMaterialSeleccionado] = useState('');
+  const [cantidadMaterial, setCantidadMaterial] = useState('');
+  const [errorPuntos, setErrorPuntos] = useState('');
+  const [solicitudEditandoId, setSolicitudEditandoId] = useState<string | null>(null);
+  const [edicionRecogida, setEdicionRecogida] = useState({ direccion: '', fecha: '', observaciones: '' });
   const [direccion, setDireccion] = useState('');
   const [fecha, setFecha] = useState('');
   const [observaciones, setObservaciones] = useState('');
@@ -83,29 +91,43 @@ export default function PanelOperativo({ rol, usuarioId, seccion = 'todos' }: Pr
         if (errorPerfil) throw errorPerfil;
         setCliente(perfil);
         if (perfil) {
-          const [{ data: movimientos, error: errorMov }, { data: historial, error: errorCanjes }] = await Promise.all([
+          const [
+            { data: movimientos, error: errorMov },
+            { data: historial, error: errorCanjes },
+            { data: solicitudesCliente, error: errorSolicitudes },
+          ] = await Promise.all([
             supabase.from('movimientosPuntos').select('*').eq('clienteId', perfil.id).order('fecha', { ascending: false }),
             supabase.from('canjes').select('*, recompensas(nombre, descripcion)').eq('clienteId', perfil.id).order('fechaSolicitud', { ascending: false }),
+            supabase.from('solicitudesRecogida').select('*').eq('clienteId', perfil.id).order('fechaCreacion', { ascending: false }),
           ]);
           if (errorMov) throw errorMov;
           if (errorCanjes) throw errorCanjes;
-          setPuntos(movimientos ?? []); setCanjes(historial ?? []);
+          if (errorSolicitudes) throw errorSolicitudes;
+          setPuntos(movimientos ?? []); setCanjes(historial ?? []); setRecogidas(solicitudesCliente ?? []);
         }
         const { data: catalogo, error: errorCatalogo } = await supabase.from('recompensas').select('*').eq('activo', true).gt('stock', 0).order('puntosRequeridos');
         if (errorCatalogo) throw errorCatalogo;
         setPremios(catalogo ?? []);
       } else if (rol === 'gestor') {
-        const [{ data, error }, { data: clientesActivos, error: errorClientes }, { data: gestoresActivos, error: errorGestores }] = await Promise.all([
+        const [
+          { data, error },
+          { data: clientesActivos, error: errorClientes },
+          { data: gestoresActivos, error: errorGestores },
+          { data: materialesActivos, error: errorMateriales },
+        ] = await Promise.all([
           supabase.rpc('lista_recogidas_gestor'),
           supabase.rpc('lista_clientes_para_recogida'),
           supabase.rpc('lista_gestores_para_recogida'),
+          supabase.from('materialesReciclables').select('id,nombre,unidadMedida,puntosPorUnidad,activo').eq('activo', true).order('nombre'),
         ]);
         if (error) throw error;
         if (errorClientes) throw errorClientes;
         if (errorGestores) throw errorGestores;
+        if (errorMateriales) throw errorMateriales;
         setRecogidas(data ?? []);
         setClientesParaRecogida((clientesActivos ?? []) as ClienteParaRecogida[]);
         setGestoresParaRecogida((gestoresActivos ?? []) as GestorParaRecogida[]);
+        setMaterialesParaPuntos((materialesActivos ?? []) as MaterialParaPuntos[]);
       } else if (rol === 'entidad_financiera') {
         const { data, error } = await supabase.rpc('historial_canjes_financieras');
         if (error) throw error;
@@ -131,16 +153,11 @@ export default function PanelOperativo({ rol, usuarioId, seccion = 'todos' }: Pr
   const mostrar = (...modulos: string[]) => seccion === 'todos' || modulos.includes(seccion);
 
   // Valido y envío al sistema una solicitud de recogida del cliente.
-  const solicitarRecogida = async () => {
-    setErrorRecogida('');
-    setMensaje('');
-    if (!supabase) { setErrorRecogida('No hay conexión con Supabase. Revisa la configuración e inténtalo de nuevo.'); return; }
-    if (!direccion.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(fecha) || Number.isNaN(Date.parse(`${fecha}T12:00:00`))) {
-      setErrorRecogida('Escribe la dirección y una fecha válida con formato AAAA-MM-DD.'); return;
-    }
-    setGuardando(true); setMensaje('');
+  // Guardo la solicitud cuando el cliente confirma el resumen de sus datos.
+  const guardarSolicitudRecogida = async (): Promise<string> => {
+    if (!supabase) throw new Error('No hay conexión con Supabase.');
+    setGuardando(true);
     try {
-      // Vuelvo a buscar el perfil si todavía no estaba disponible al abrir la pantalla.
       let perfilCliente = cliente;
       if (!perfilCliente) {
         const { data, error: errorPerfil } = await supabase.from('clientes').select('*').eq('usuarioId', usuarioId).maybeSingle();
@@ -155,27 +172,24 @@ export default function PanelOperativo({ rol, usuarioId, seccion = 'todos' }: Pr
           if (!sesion.user || sesion.user.id !== usuarioId) throw new Error('La sesión no coincide con el perfil. Cierra sesión y vuelve a ingresar.');
           const datos = sesion.user.user_metadata ?? {};
           const documento = String(datos.documento ?? '').trim() || `PENDIENTE-${usuarioId}`;
-          const { data: perfilCreado, error: errorCrearPerfil } = await supabase.from('clientes').insert({
-            id: usuarioId,
-            usuarioId,
-            documento,
-            telefono: String(datos.telefono ?? ''),
-            direccion: String(datos.direccion ?? ''),
-            puntosDisponibles: 0,
-            puntosAcumulados: 0,
-          }).select('*').single();
+          const { data: perfilCreado, error: errorCrearPerfil } = await supabase.rpc('crear_ficha_cliente_propia', {
+            p_documento: documento,
+            p_telefono: String(datos.telefono ?? ''),
+            p_direccion: String(datos.direccion ?? ''),
+          });
           if (errorCrearPerfil) {
-            if (errorCrearPerfil.code === '42501') throw new Error('Supabase bloqueó la creación de tu ficha por permisos. En SQL Editor ejecuta supabase/migraciones/202610300001_clientes_perfil_propio.sql; no necesitas volver a ejecutar todo el esquema. Si ya la ejecutaste, verifica que tu cuenta tenga rol Cliente y esté activa.');
+            if (errorCrearPerfil.code === 'PGRST202' || errorCrearPerfil.code === '42883') throw new Error('Falta instalar en Supabase la función segura para recuperar fichas. Ejecuta supabase/migraciones/202611030001_recuperar_ficha_cliente.sql y vuelve a intentarlo.');
+            if (errorCrearPerfil.code === '42501') throw new Error('Tu cuenta no tiene permiso para recuperar una ficha de cliente. Verifica que tenga rol Cliente y esté activa.');
             if (errorCrearPerfil.code === '23505') throw new Error('No se pudo completar tu ficha porque el documento ya está registrado. Contacta al administrador.');
             throw errorCrearPerfil;
           }
-          perfilCliente = perfilCreado;
-          setCliente(perfilCreado);
+          perfilCliente = perfilCreado as Registro;
+          setCliente(perfilCreado as Registro);
         }
       }
       if (!perfilCliente) throw new Error('No encontramos tu ficha de cliente. Cierra sesión y vuelve a ingresar; si el problema continúa, contacta al administrador.');
 
-      // Guardo la solicitud directamente; RLS valida que el cliente solo cree una para su propio perfil.
+      // Guardo la solicitud; RLS comprueba que pertenece al cliente conectado.
       const { error } = await supabase.from('solicitudesRecogida').insert({
         id: `recogida_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         clienteId: perfilCliente.id,
@@ -188,11 +202,79 @@ export default function PanelOperativo({ rol, usuarioId, seccion = 'todos' }: Pr
       if (error) throw new Error(mensajeErrorAlCrearRecogida(error));
       setDireccion(''); setFecha(''); setObservaciones(''); setErrorRecogida(''); setMensaje('Solicitud de recogida enviada correctamente.');
       await cargar();
-    } catch (error) {
-      setErrorRecogida(error instanceof Error ? error.message : 'No se pudo enviar la solicitud de recogida.');
-    } finally { setGuardando(false); }
+      return 'La solicitud quedó registrada y aparece en tu historial con su estado actual.';
+    } finally {
+      setGuardando(false);
+    }
   };
 
+  // Valido la solicitud y pido confirmación antes de guardarla.
+  const solicitarRecogida = () => {
+    setErrorRecogida('');
+    setMensaje('');
+    if (!supabase) { setErrorRecogida('No hay conexión con Supabase. Revisa la configuración e inténtalo de nuevo.'); return; }
+    if (!direccion.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(fecha) || Number.isNaN(Date.parse(`${fecha}T12:00:00`))) {
+      setErrorRecogida('Escribe la dirección y una fecha válida con formato AAAA-MM-DD.'); return;
+    }
+    pedirConfirmacion('Confirmar solicitud', `¿Deseas solicitar una recogida para el ${fecha} en ${direccion.trim()}?`, 'Enviar solicitud', guardarSolicitudRecogida);
+  };
+
+  // Pido confirmación y cancelo únicamente solicitudes propias que siguen pendientes.
+  const cancelarSolicitudCliente = (solicitud: Registro) => {
+    pedirConfirmacion('Cancelar solicitud', `¿Confirmas cancelar la solicitud del ${new Date(solicitud.fechaSolicitada).toLocaleString()}?`, 'Sí, cancelar', async () => {
+      if (!supabase || !cliente) throw new Error('No se pudo validar tu perfil de cliente.');
+      const { data, error } = await supabase.from('solicitudesRecogida')
+        .update({ estado: 'cancelada' })
+        .eq('id', solicitud.id)
+        .eq('clienteId', cliente.id)
+        .eq('estado', 'pendiente')
+        .select('id')
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!data) throw new Error('La solicitud ya no está pendiente y no se puede cancelar. Actualiza el historial.');
+      await cargar();
+      return 'La solicitud se canceló correctamente.';
+    });
+  };
+
+  // Dejo que el cliente edite su solicitud mientras siga pendiente.
+  const editarSolicitudCliente = (solicitud: Registro) => {
+    setErrorRecogida('');
+    setSolicitudEditandoId(solicitud.id);
+    setEdicionRecogida({
+      direccion: String(solicitud.direccion ?? ''),
+      fecha: String(solicitud.fechaSolicitada ?? '').slice(0, 10),
+      observaciones: String(solicitud.observaciones ?? ''),
+    });
+  };
+
+  // Valido los datos y confirmo antes de guardar cambios en la recogida.
+  const guardarEdicionSolicitud = (solicitud: Registro) => {
+    const fechaCoincide = /^(\d{4})-(\d{2})-(\d{2})$/.exec(edicionRecogida.fecha.trim());
+    const fechaValida = Boolean(fechaCoincide && (() => {
+      const fechaComprobada = new Date(Date.UTC(Number(fechaCoincide[1]), Number(fechaCoincide[2]) - 1, Number(fechaCoincide[3])));
+      return fechaComprobada.getUTCFullYear() === Number(fechaCoincide[1])
+        && fechaComprobada.getUTCMonth() + 1 === Number(fechaCoincide[2])
+        && fechaComprobada.getUTCDate() === Number(fechaCoincide[3]);
+    })());
+    if (!edicionRecogida.direccion.trim() || !fechaValida) {
+      setErrorRecogida('Completa la dirección y una fecha válida con formato AAAA-MM-DD.');
+      return;
+    }
+    pedirConfirmacion('Guardar cambios de recogida', `¿Confirmas actualizar la dirección y fecha de la solicitud del ${edicionRecogida.fecha}?`, 'Guardar cambios', async () => {
+      if (!supabase || !cliente) throw new Error('No se pudo validar tu perfil de cliente.');
+      const { data, error } = await supabase.from('solicitudesRecogida').update({
+        direccion: edicionRecogida.direccion.trim(),
+        fechaSolicitada: new Date(`${edicionRecogida.fecha.trim()}T12:00:00`).toISOString(),
+        observaciones: edicionRecogida.observaciones.trim(),
+      }).eq('id', solicitud.id).eq('clienteId', cliente.id).eq('estado', 'pendiente').select('id').maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!data) throw new Error('La solicitud ya no está pendiente y no se puede editar. Actualiza el historial.');
+      setSolicitudEditandoId(null);
+      await cargar();
+      return 'Los datos de la solicitud se actualizaron correctamente.';
+    });
+  };
   // Registro una recogida para un cliente y elijo qué gestor activo la atenderá.
   const crearRecogidaGestor = () => {
     setErrorRecogida('');
@@ -222,31 +304,108 @@ export default function PanelOperativo({ rol, usuarioId, seccion = 'todos' }: Pr
   };
 
   // Solicito cada canje del carrito usando la operación segura de Supabase.
-  const confirmarCarrito = async () => {
-    if (!supabase || !carrito.length) return;
-    setGuardando(true); setMensaje('');
-    let completados = 0;
-    for (const premioId of carrito) {
-      const { error } = await supabase.rpc('canjear_recompensa', { recompensa_id: premioId });
-      if (error) { setMensaje(`${completados ? `Se procesaron ${completados} canje(s). ` : ''}${error.message}`); break; }
-      completados++;
+  // Reviso el saldo total del carrito antes de intentar cualquier canje.
+  const confirmarCarrito = () => {
+    const clienteSupabase = supabase;
+    if (!clienteSupabase || !carrito.length) return;
+    const premiosSeleccionados = carrito.map((id) => premios.find((premio) => premio.id === id));
+    if (premiosSeleccionados.some((premio) => !premio)) {
+      setDialogoAccion({ tipo: 'resultado', titulo: 'Actualiza el carrito', mensaje: 'Uno de los productos seleccionados ya no está disponible. Actualiza la lista y vuelve a preparar el canje.' });
+      return;
     }
-    if (completados === carrito.length) setMensaje(`${completados} canje(s) solicitado(s) correctamente.`);
-    setCarrito((actual) => actual.slice(completados));
-    setGuardando(false);
-    await cargar();
-  };
 
+    const totalNecesario = premiosSeleccionados.reduce((total, premio) => total + Number(premio?.puntosRequeridos ?? 0), 0);
+    const puntosDisponibles = Number(cliente?.puntosDisponibles ?? 0);
+    if (totalNecesario > puntosDisponibles) {
+      const puntosFaltantes = totalNecesario - puntosDisponibles;
+      setDialogoAccion({
+        tipo: 'resultado',
+        titulo: 'Puntos insuficientes',
+        mensaje: `No se procesó ningún canje. Tu carrito requiere ${totalNecesario} puntos y tienes ${puntosDisponibles}. Te faltan ${puntosFaltantes} puntos.`,
+      });
+      return;
+    }
+
+    pedirConfirmacion('Confirmar canjes', `Vas a solicitar ${carrito.length} producto(s) por un total de ${totalNecesario} puntos. ¿Deseas continuar?`, 'Sí, confirmar canjes', async () => {
+      setGuardando(true);
+      let completados = 0;
+      try {
+        for (const premioId of carrito) {
+          const { error } = await clienteSupabase.rpc('canjear_recompensa', { recompensa_id: premioId });
+          if (error) {
+            const avance = completados ? `Se completaron ${completados} canje(s) antes del error. ` : 'No se completó ningún canje. ';
+            throw new Error(`${avance}${error.message}`);
+          }
+          completados++;
+        }
+        setCarrito([]);
+        setMensaje(`${completados} canje(s) solicitado(s) correctamente.`);
+        await cargar();
+        return `${completados} canje(s) solicitado(s) correctamente.`;
+      } finally {
+        setGuardando(false);
+      }
+    });
+  };
   // Actualizo el estado de una recogida desde la cuenta del gestor.
   const cambiarEstadoRecogida = async (id: string, estado: string) => {
     if (!supabase) return;
     const recogida = recogidas.find((item) => item.id === id);
+    if (estado === 'completada') {
+      if (!recogida) return;
+      setSolicitudParaCompletar(recogida);
+      setMaterialSeleccionado('');
+      setCantidadMaterial('');
+      setErrorPuntos('');
+      return;
+    }
     pedirConfirmacion(estado === 'asignada' ? 'Asignarme la recogida' : 'Completar recogida', `¿Confirmas ${estado === 'asignada' ? 'asignarte' : 'marcar como completada'} esta recogida?`, estado === 'asignada' ? 'Asignarme' : 'Marcar completada', async () => {
       const { error } = await supabase!.from('solicitudesRecogida').update({ estado, ...(estado === 'asignada' ? { gestorId: usuarioId } : {}) }).eq('id', id);
       if (error) throw new Error(error.message);
       await cargar();
       return `La recogida de ${recogida?.nombreCliente ?? 'el cliente'} quedó ${estado === 'asignada' ? 'asignada a tu cuenta' : 'completada'}.`;
     });
+  };
+
+  // Calculo el valor estimado y pido confirmación antes de sumar los puntos.
+  const confirmarPuntosRecogida = () => {
+    const solicitud = solicitudParaCompletar;
+    const material = materialesParaPuntos.find((item) => item.id === materialSeleccionado);
+    const cantidad = Number(cantidadMaterial.trim().replace(',', '.'));
+    if (!solicitud) { setErrorPuntos('No se encontró la solicitud que vas a completar.'); return; }
+    if (!material) { setErrorPuntos('Selecciona un material reciclable activo.'); return; }
+    if (!Number.isFinite(cantidad) || cantidad <= 0) { setErrorPuntos('Escribe una cantidad mayor que cero.'); return; }
+    if (material.unidadMedida === 'unidad' && !Number.isInteger(cantidad)) { setErrorPuntos('Este material se cuenta por unidades completas.'); return; }
+    if (material.unidadMedida === 'kg' && Math.round(cantidad * 1000) !== cantidad * 1000) { setErrorPuntos('El peso puede tener máximo tres decimales.'); return; }
+    const puntosCalculados = Math.floor(cantidad * material.puntosPorUnidad);
+    if (puntosCalculados < 1) { setErrorPuntos('La cantidad registrada no alcanza un punto. Revisa el peso o la tarifa del material.'); return; }
+
+    setErrorPuntos('');
+    setSolicitudParaCompletar(null);
+    pedirConfirmacion(
+      'Confirmar recogida y puntos',
+      `Material: ${material.nombre}. Cantidad: ${cantidad} ${material.unidadMedida}. Se sumarán ${puntosCalculados} puntos a ${solicitud.nombreCliente}. ¿Confirmas?`,
+      'Completar y asignar puntos',
+      async () => {
+        if (!supabase) throw new Error('No hay conexión con Supabase.');
+        setGuardando(true);
+        try {
+          const { data, error } = await supabase.rpc('completar_recogida_con_puntos', {
+            p_solicitud_id: solicitud.id,
+            p_material_id: material.id,
+            p_cantidad: cantidad,
+          });
+          if (error) {
+            if (error.code === 'PGRST202' || error.code === '42883') throw new Error('Falta instalar la función de puntos por recogida en Supabase. Ejecuta supabase/migraciones/202611030003_puntos_por_recogida.sql.');
+            throw new Error(error.message);
+          }
+          await cargar();
+          return `Recogida completada. Se sumaron ${Number(data ?? puntosCalculados)} puntos a ${solicitud.nombreCliente}.`;
+        } finally {
+          setGuardando(false);
+        }
+      },
+    );
   };
 
   // Abro un diálogo para confirmar antes de ejecutar una acción importante.
@@ -489,22 +648,23 @@ export default function PanelOperativo({ rol, usuarioId, seccion = 'todos' }: Pr
             </View>
           </View>
         </Modal>
-        <Modal visible={Boolean(dialogoAccion)} transparent animationType="fade" onRequestClose={cerrarDialogo}>
-          <View style={estilos.fondoConfirmacion}>
-            <View style={estilos.dialogoConfirmacion}>
-              <Text style={estilos.tituloConfirmacion}>{dialogoAccion?.titulo}</Text>
-              <Text style={estilos.textoConfirmacion}>{dialogoAccion?.mensaje}</Text>
-              {dialogoAccion?.error ? <Text accessibilityRole="alert" style={estilos.errorConfirmacion}>{dialogoAccion.error}</Text> : null}
-              {dialogoAccion?.tipo === 'confirmacion' ? <View style={estilos.accionesConfirmacion}>
-                <TouchableOpacity disabled={procesandoDialogo} style={estilos.botonCancelarConfirmacion} onPress={cerrarDialogo}><Text style={estilos.textoCancelarConfirmacion}>Cancelar</Text></TouchableOpacity>
-                <TouchableOpacity disabled={procesandoDialogo} style={estilos.botonConfirmarDesactivacion} onPress={() => void ejecutarAccionConfirmada()}>
-                  {procesandoDialogo ? <ActivityIndicator color={colores.blanco} /> : <Text style={estilos.textoBoton}>{dialogoAccion.textoConfirmar}</Text>}
-                </TouchableOpacity>
-              </View> : <TouchableOpacity style={estilos.botonCerrarResultado} onPress={() => setDialogoAccion(null)}><Text style={estilos.textoBoton}>Entendido</Text></TouchableOpacity>}
-            </View>
-          </View>
-        </Modal>
       </> : null}
+
+      <Modal visible={Boolean(dialogoAccion)} transparent animationType="fade" onRequestClose={cerrarDialogo}>
+        <View style={estilos.fondoConfirmacion}>
+          <View style={estilos.dialogoConfirmacion}>
+            <Text style={estilos.tituloConfirmacion}>{dialogoAccion?.titulo}</Text>
+            <Text style={estilos.textoConfirmacion}>{dialogoAccion?.mensaje}</Text>
+            {dialogoAccion?.error ? <Text accessibilityRole="alert" style={estilos.errorConfirmacion}>{dialogoAccion.error}</Text> : null}
+            {dialogoAccion?.tipo === 'confirmacion' ? <View style={estilos.accionesConfirmacion}>
+              <TouchableOpacity disabled={procesandoDialogo} style={estilos.botonCancelarConfirmacion} onPress={cerrarDialogo}><Text style={estilos.textoCancelarConfirmacion}>Volver</Text></TouchableOpacity>
+              <TouchableOpacity disabled={procesandoDialogo} style={estilos.botonConfirmarDesactivacion} onPress={() => void ejecutarAccionConfirmada()}>
+                {procesandoDialogo ? <ActivityIndicator color={colores.blanco} /> : <Text style={estilos.textoBoton}>{dialogoAccion.textoConfirmar}</Text>}
+              </TouchableOpacity>
+            </View> : <TouchableOpacity style={estilos.botonCerrarResultado} onPress={() => setDialogoAccion(null)}><Text style={estilos.textoBoton}>Entendido</Text></TouchableOpacity>}
+          </View>
+        </View>
+      </Modal>
 
       {rol === 'cliente' ? <>
         {mostrar('puntos') ? <View style={estilos.grid}><View style={estilos.metric}><Text style={estilos.numero}>{cliente?.puntosDisponibles ?? 0}</Text><Text style={estilos.texto}>Puntos disponibles</Text></View><View style={estilos.metric}><Text style={estilos.numero}>{cliente?.puntosAcumulados ?? 0}</Text><Text style={estilos.texto}>Puntos acumulados</Text></View></View> : null}
@@ -517,6 +677,28 @@ export default function PanelOperativo({ rol, usuarioId, seccion = 'todos' }: Pr
         {errorRecogida ? <Text accessibilityRole="alert" style={estilos.errorFormulario}>{errorRecogida}</Text> : null}
         <TouchableOpacity accessibilityRole="button" style={estilos.botonRecogida} disabled={guardando || cargando} onPress={() => void solicitarRecogida()}><Text style={estilos.textoBoton}>{cargando ? 'Cargando perfil…' : guardando ? 'Enviando…' : 'Solicitar recogida'}</Text></TouchableOpacity>
         </View>
+        <Text style={estilos.seccion}>Mis solicitudes e historial</Text>
+        {recogidas.length ? recogidas.map((solicitud) => <View key={solicitud.id} style={estilos.registro}>
+          <Text style={estilos.nombre}>Estado: {({ pendiente: 'Pendiente', asignada: 'Asignada', completada: 'Completada', cancelada: 'Cancelada' } as Record<string, string>)[solicitud.estado] ?? solicitud.estado}</Text>
+          {solicitudEditandoId === solicitud.id ? <>
+            <TextInput accessibilityLabel="Dirección de recogida" style={estilos.input} placeholder="Dirección de recogida" value={edicionRecogida.direccion} onChangeText={(valor) => setEdicionRecogida((actual) => ({ ...actual, direccion: valor }))} />
+            <TextInput accessibilityLabel="Fecha solicitada" style={estilos.input} placeholder="Fecha (AAAA-MM-DD)" value={edicionRecogida.fecha} onChangeText={(valor) => setEdicionRecogida((actual) => ({ ...actual, fecha: valor }))} />
+            <TextInput accessibilityLabel="Indicaciones para el gestor" style={estilos.input} placeholder="Indicaciones para el gestor (opcional)" value={edicionRecogida.observaciones} onChangeText={(valor) => setEdicionRecogida((actual) => ({ ...actual, observaciones: valor }))} />
+            {errorRecogida ? <Text accessibilityRole="alert" style={estilos.errorFormulario}>{errorRecogida}</Text> : null}
+            <View style={estilos.accionesRegistro}>
+              <TouchableOpacity style={estilos.botonPequeno} disabled={guardando} onPress={() => guardarEdicionSolicitud(solicitud)}><Text style={estilos.textoBoton}>Guardar cambios</Text></TouchableOpacity>
+              <TouchableOpacity style={estilos.botonEliminarRegistro} onPress={() => { setSolicitudEditandoId(null); setErrorRecogida(''); }}><Text style={estilos.textoPerfilDesactivar}>Cancelar edición</Text></TouchableOpacity>
+            </View>
+          </> : <>
+            <Text style={estilos.texto}>Fecha solicitada: {new Date(solicitud.fechaSolicitada).toLocaleString()}</Text>
+            <Text style={estilos.texto}>Dirección: {solicitud.direccion}</Text>
+            {solicitud.observaciones ? <Text style={estilos.texto}>Indicaciones: {solicitud.observaciones}</Text> : null}
+            {solicitud.estado === 'pendiente' ? <View style={estilos.accionesRegistro}>
+              <TouchableOpacity style={estilos.botonPequeno} onPress={() => editarSolicitudCliente(solicitud)}><Text style={estilos.textoBoton}>Editar solicitud</Text></TouchableOpacity>
+              <TouchableOpacity style={estilos.botonEliminarRegistro} onPress={() => cancelarSolicitudCliente(solicitud)}><Text style={estilos.textoPerfilDesactivar}>Cancelar solicitud</Text></TouchableOpacity>
+            </View> : null}
+          </>}
+        </View>) : (!cargando ? <Text style={estilos.vacio}>Aún no tienes solicitudes de recogida. Aquí aparecerán su estado y su historial.</Text> : <ActivityIndicator color={colores.azulOscuro} />)}
         </> : null}
         {mostrar('productos') ? <>
         <Text style={estilos.seccion}>Catálogo y carrito de canjes</Text>
@@ -566,7 +748,7 @@ export default function PanelOperativo({ rol, usuarioId, seccion = 'todos' }: Pr
         </> : null}
         {mostrar('recogidas', 'historial') ? <>
         <Text style={estilos.seccion}>Solicitudes e historial</Text>
-        {recogidas.length ? recogidas.map((r) => <View key={r.id} style={estilos.registro}><Text style={estilos.nombre}>{r.nombreCliente} · {r.telefono}</Text><Text style={estilos.texto}>{r.direccion} · {new Date(r.fechaSolicitada).toLocaleString()}</Text><Text style={estilos.texto}>Estado: {r.estado} {r.gestorId ? `· Gestor asignado: ${r.nombreGestor ?? 'Cuenta de gestor'}` : ''} {r.observaciones ? `· ${r.observaciones}` : ''}</Text>{r.estado === 'pendiente' ? <TouchableOpacity style={estilos.botonPequeno} onPress={() => void cambiarEstadoRecogida(r.id, 'asignada')}><Text style={estilos.textoBoton}>Asignarme</Text></TouchableOpacity> : null}{r.estado === 'asignada' && r.gestorId === usuarioId ? <TouchableOpacity style={estilos.botonPequeno} onPress={() => void cambiarEstadoRecogida(r.id, 'completada')}><Text style={estilos.textoBoton}>Marcar completada</Text></TouchableOpacity> : null}</View>) : (!cargando ? <Text style={estilos.vacio}>No hay solicitudes de recogida.</Text> : null)}
+        {recogidas.length ? recogidas.map((r) => <View key={r.id} style={estilos.registro}><Text style={estilos.nombre}>{r.nombreCliente} · {r.telefono}</Text><Text style={estilos.texto}>{r.direccion} · {new Date(r.fechaSolicitada).toLocaleString()}</Text><Text style={estilos.texto}>Estado: {r.estado} {r.gestorId ? `· Gestor asignado: ${r.nombreGestor ?? 'Cuenta de gestor'}` : ''} {r.observaciones ? `· ${r.observaciones}` : ''}</Text>{r.estado === 'pendiente' ? <TouchableOpacity style={estilos.botonPequeno} onPress={() => void cambiarEstadoRecogida(r.id, 'asignada')}><Text style={estilos.textoBoton}>Asignarme</Text></TouchableOpacity> : null}{r.estado === 'asignada' && r.gestorId === usuarioId ? <TouchableOpacity style={estilos.botonPequeno} onPress={() => void cambiarEstadoRecogida(r.id, 'completada')}><Text style={estilos.textoBoton}>Registrar material y completar</Text></TouchableOpacity> : null}</View>) : (!cargando ? <Text style={estilos.vacio}>No hay solicitudes de recogida.</Text> : null)}
         </> : null}
       </> : null}
 
@@ -575,10 +757,38 @@ export default function PanelOperativo({ rol, usuarioId, seccion = 'todos' }: Pr
         {canjes.length ? canjes.map((canje) => <View key={canje.canjeId} style={estilos.registro}><Text style={estilos.nombre}>{canje.producto} · {canje.puntosUsados} puntos</Text><Text style={estilos.texto}>Estado: {canje.estado} · Fecha: {String(canje.fechaSolicitud).slice(0, 10)}</Text></View>) : (!cargando ? <Text style={estilos.vacio}>No hay canjes en el historial.</Text> : null)}
       </> : null}
 
+      <Modal visible={Boolean(solicitudParaCompletar)} transparent animationType="fade" onRequestClose={() => setSolicitudParaCompletar(null)}>
+        <View style={estilos.fondoConfirmacion}>
+          <View style={estilos.dialogoConfirmacion}>
+            <Text style={estilos.tituloConfirmacion}>Registrar material recibido</Text>
+            <Text style={estilos.textoConfirmacion}>Elige el material y registra el peso o la cantidad para calcular los puntos de {solicitudParaCompletar?.nombreCliente ?? 'este cliente'}.</Text>
+            <TouchableOpacity style={estilos.input} onPress={() => setSelectorRecogidaVisible('material')}>
+              <Text style={{ color: materialSeleccionado ? colores.tinta : colores.textoSuave }}>
+                {materialesParaPuntos.find((item) => item.id === materialSeleccionado)?.nombre ?? 'Selecciona un material reciclable'}
+              </Text>
+            </TouchableOpacity>
+            {materialSeleccionado ? <Text style={estilos.texto}>
+              Tarifa: {materialesParaPuntos.find((item) => item.id === materialSeleccionado)?.puntosPorUnidad} puntos por {materialesParaPuntos.find((item) => item.id === materialSeleccionado)?.unidadMedida}
+            </Text> : null}
+            <TextInput style={estilos.input} placeholder={materialesParaPuntos.find((item) => item.id === materialSeleccionado)?.unidadMedida === 'unidad' ? 'Cantidad de unidades' : 'Peso entregado en kg'} keyboardType="decimal-pad" value={cantidadMaterial} onChangeText={setCantidadMaterial} />
+            {materialSeleccionado && Number(cantidadMaterial.replace(',', '.')) > 0 ? <Text style={estilos.texto}>
+              Puntos estimados: {Math.floor(Number(cantidadMaterial.replace(',', '.')) * Number(materialesParaPuntos.find((item) => item.id === materialSeleccionado)?.puntosPorUnidad ?? 0))}
+            </Text> : null}
+            {errorPuntos ? <Text accessibilityRole="alert" style={estilos.errorFormulario}>{errorPuntos}</Text> : null}
+            <View style={estilos.accionesConfirmacion}>
+              <TouchableOpacity style={estilos.botonCancelarConfirmacion} disabled={guardando} onPress={() => setSolicitudParaCompletar(null)}><Text style={estilos.textoCancelarConfirmacion}>Volver</Text></TouchableOpacity>
+              <TouchableOpacity style={estilos.botonConfirmarDesactivacion} disabled={guardando} onPress={confirmarPuntosRecogida}>
+                <Text style={estilos.textoBoton}>{guardando ? 'Guardando…' : 'Continuar'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={selectorRecogidaVisible !== null} transparent animationType="fade" onRequestClose={() => setSelectorRecogidaVisible(null)}>
         <View style={estilos.fondoConfirmacion}>
           <View style={estilos.dialogoConfirmacion}>
-            <Text style={estilos.tituloConfirmacion}>{selectorRecogidaVisible === 'gestor' ? 'Seleccionar gestor' : 'Seleccionar cliente'}</Text>
+            <Text style={estilos.tituloConfirmacion}>{selectorRecogidaVisible === 'gestor' ? 'Seleccionar gestor' : selectorRecogidaVisible === 'material' ? 'Seleccionar material' : 'Seleccionar cliente'}</Text>
             <ScrollView style={{ maxHeight: 340 }}>
               {selectorRecogidaVisible === 'gestor' ? <TouchableOpacity style={estilos.registro} onPress={() => { setGestorRecogidaSeleccionado(''); setSelectorRecogidaVisible(null); }}>
                 <Text style={estilos.nombre}>Sin gestor asignado</Text>
@@ -592,8 +802,13 @@ export default function PanelOperativo({ rol, usuarioId, seccion = 'todos' }: Pr
                 <Text style={estilos.nombre}>{item.nombre}</Text>
                 <Text style={estilos.texto}>Documento: {item.documento} · Teléfono: {item.telefono || 'No registrado'}</Text>
               </TouchableOpacity>) : null}
+              {selectorRecogidaVisible === 'material' ? materialesParaPuntos.map((item) => <TouchableOpacity key={item.id} style={estilos.registro} onPress={() => { setMaterialSeleccionado(item.id); setSelectorRecogidaVisible(null); setErrorPuntos(''); }}>
+                <Text style={estilos.nombre}>{item.nombre}</Text>
+                <Text style={estilos.texto}>{item.puntosPorUnidad} puntos por {item.unidadMedida}</Text>
+              </TouchableOpacity>) : null}
               {selectorRecogidaVisible === 'cliente' && clientesParaRecogida.length === 0 ? <Text style={estilos.vacio}>No hay clientes activos disponibles.</Text> : null}
               {selectorRecogidaVisible === 'gestor' && gestoresParaRecogida.length === 0 ? <Text style={estilos.vacio}>No hay gestores activos disponibles.</Text> : null}
+              {selectorRecogidaVisible === 'material' && materialesParaPuntos.length === 0 ? <Text style={estilos.vacio}>No hay materiales activos creados por administración.</Text> : null}
             </ScrollView>
             <TouchableOpacity style={estilos.botonCerrarResultado} onPress={() => setSelectorRecogidaVisible(null)}><Text style={estilos.textoBoton}>Cerrar</Text></TouchableOpacity>
           </View>
@@ -636,6 +851,7 @@ const estilos = StyleSheet.create({
   textoPeligro: { color: colores.error, fontSize: 12, fontWeight: '700' },
   textoChip: { color: colores.verdeOscuro, fontSize: 12, fontWeight: '700', textTransform: 'capitalize' },
   boton: { minHeight: 44, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14, backgroundColor: colores.verde, borderRadius: 8 },
+  accionesRegistro: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 9 },
   botonEliminarRegistro: { minHeight: 38, justifyContent: 'center', paddingHorizontal: 11, borderRadius: 8, backgroundColor: '#fff1f0', borderWidth: 1, borderColor: '#edb2ae' },
   botonPequeno: { alignSelf: 'flex-start', minHeight: 38, justifyContent: 'center', paddingHorizontal: 12, backgroundColor: colores.verde, borderRadius: 8 },
   textoBoton: { color: colores.blanco, fontWeight: '800' },
