@@ -1,5 +1,6 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import type { RootStackParamList } from '../App';
 import { cerrarSesion } from '../src/servicios/autenticacion';
@@ -37,8 +38,9 @@ export default function Home({ navigation, route }: Props) {
   const [cargando, setCargando] = useState(true);
   const [resumen, setResumen] = useState<{ etiqueta: string; valor: string }[]>([]);
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     let activo = true;
+    setCargando(true);
     // Cargo el resumen del rol y muestro un mensaje si falla la consulta, sin tumbar la pantalla.
     const cargarResumen = async () => {
       try {
@@ -76,7 +78,7 @@ export default function Home({ navigation, route }: Props) {
     };
     void cargarResumen();
     return () => { activo = false; };
-  }, [rol, usuarioId]);
+  }, [rol, usuarioId]));
 
   const salir = async () => {
     try { await cerrarSesion(); }

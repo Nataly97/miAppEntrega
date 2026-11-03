@@ -301,6 +301,25 @@ returns trigger language plpgsql security definer set search_path = public
 as $$
 begin
   if public.es_administrador() then return new; end if;
+  if public.es_cliente_activo() then
+    if not public.es_propietario_cliente(old."clienteId")
+      or old.estado <> 'pendiente' or new.estado not in ('pendiente', 'cancelada')
+      or new.id is distinct from old.id
+      or new."clienteId" is distinct from old."clienteId"
+      or new."gestorId" is distinct from old."gestorId"
+      or new."creadoPor" is distinct from old."creadoPor"
+      or new."fechaCreacion" is distinct from old."fechaCreacion" then
+      raise exception 'Solo puedes editar o cancelar tus solicitudes pendientes.';
+    end if;
+    if new.estado = 'cancelada' and (
+      new.direccion is distinct from old.direccion
+      or new."fechaSolicitada" is distinct from old."fechaSolicitada"
+      or new.observaciones is distinct from old.observaciones
+    ) then
+      raise exception 'No puedes cambiar los datos de una solicitud al cancelarla.';
+    end if;
+    return new;
+  end if;
   if not public.es_gestor_o_administrador() then raise exception 'No tienes permiso para modificar recogidas.'; end if;
   if new."clienteId" is distinct from old."clienteId"
     or new.direccion is distinct from old.direccion
@@ -341,6 +360,42 @@ as $$
     where c.id = cliente_id and c."usuarioId" = auth.uid()::text
       and u.rol = 'cliente' and u.activo = true
   );
+$$;
+
+-- Recupero la ficha del cliente actual si falta, sin permitir modificar sus puntos.
+create or replace function public.crear_ficha_cliente_propia(
+  p_documento text,
+  p_telefono text default '',
+  p_direccion text default ''
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  id_actual text := auth.uid()::text;
+  ficha public.clientes%rowtype;
+begin
+  if id_actual is null then raise exception 'Debes iniciar sesión para recuperar tu ficha.' using errcode = '42501'; end if;
+  if not exists (
+    select 1 from public.usuarios
+    where id = id_actual and rol = 'cliente' and activo = true and "confirmacionPendiente" = false
+  ) then
+    raise exception 'La cuenta no está activa como cliente.' using errcode = '42501';
+  end if;
+
+  insert into public.clientes (
+    id, "usuarioId", documento, telefono, direccion, "puntosDisponibles", "puntosAcumulados"
+  ) values (
+    id_actual, id_actual, coalesce(nullif(trim(p_documento), ''), 'PENDIENTE-' || id_actual),
+    coalesce(p_telefono, ''), coalesce(p_direccion, ''), 0, 0
+  ) on conflict ("usuarioId") do nothing;
+
+  select * into ficha from public.clientes where "usuarioId" = id_actual;
+  if not found then raise exception 'No se pudo recuperar la ficha del cliente.'; end if;
+  return to_jsonb(ficha);
+end;
 $$;
 
 -- Creo el perfil y la ficha del cliente cuando alguien confirma su cuenta en Supabase Auth.
@@ -463,6 +518,11 @@ create policy "clientes_admin_crud" on public.clientes
   for all to authenticated
   using (public.es_administrador()) with check (public.es_administrador());
 
+-- Permito que el gestor consulte el catálogo para registrar el material recogido.
+drop policy if exists "materiales_gestor_lectura" on public."materialesReciclables";
+create policy "materiales_gestor_lectura" on public."materialesReciclables"
+  for select to authenticated using (public.es_gestor_activo());
+
 -- Los catalogos se pueden consultar con sesion; solo administracion los modifica.
 do $$
 declare tabla text;
@@ -511,6 +571,11 @@ create policy "recogidas_cliente_insert" on public."solicitudesRecogida"
   for insert to authenticated with check (
     public.es_propietario_cliente("clienteId") and estado = 'pendiente' and "gestorId" is null
   );
+drop policy if exists "recogidas_cliente_cancelar" on public."solicitudesRecogida";
+create policy "recogidas_cliente_cancelar" on public."solicitudesRecogida"
+  for update to authenticated
+  using (public.es_propietario_cliente("clienteId") and estado = 'pendiente')
+  with check (public.es_propietario_cliente("clienteId") and estado in ('pendiente', 'cancelada'));
 drop policy if exists "recogidas_gestor_insert" on public."solicitudesRecogida";
 create policy "recogidas_gestor_insert" on public."solicitudesRecogida"
   for insert to authenticated with check (
@@ -668,12 +733,79 @@ $$;
 revoke all on function public.canjear_recompensa(text) from public, anon;
 grant execute on function public.canjear_recompensa(text) to authenticated;
 
+-- Registro el material, calculo los puntos y completo la recogida en una sola transacción.
+create or replace function public.completar_recogida_con_puntos(
+  p_solicitud_id text,
+  p_material_id text,
+  p_cantidad numeric
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  id_gestor text := auth.uid()::text;
+  solicitud public."solicitudesRecogida"%rowtype;
+  material public."materialesReciclables"%rowtype;
+  puntos_ganados integer;
+begin
+  if id_gestor is null or not public.es_gestor_activo() then
+    raise exception 'Solo un gestor activo puede completar la recogida.' using errcode = '42501';
+  end if;
+  if p_cantidad is null or p_cantidad <= 0 or p_cantidad::text in ('NaN', 'Infinity', '-Infinity') then
+    raise exception 'Registra una cantidad mayor que cero.';
+  end if;
+
+  select * into solicitud
+  from public."solicitudesRecogida"
+  where id = p_solicitud_id and "gestorId" = id_gestor and estado = 'asignada'
+  for update;
+  if not found then raise exception 'La recogida ya no está asignada a tu cuenta o ya fue completada.'; end if;
+
+  select * into material
+  from public."materialesReciclables"
+  where id = p_material_id and activo = true
+  for share;
+  if not found then raise exception 'Selecciona un material reciclable activo.'; end if;
+  if material."unidadMedida" = 'unidad' and p_cantidad <> trunc(p_cantidad) then
+    raise exception 'Este material se registra en unidades completas.';
+  end if;
+  if material."unidadMedida" = 'kg' and p_cantidad <> round(p_cantidad, 3) then
+    raise exception 'El peso puede tener máximo tres decimales.';
+  end if;
+
+  puntos_ganados := floor(p_cantidad * material."puntosPorUnidad")::integer;
+  if puntos_ganados < 1 then raise exception 'La cantidad no alcanza un punto con la tarifa actual.'; end if;
+
+  update public.clientes
+  set "puntosDisponibles" = "puntosDisponibles" + puntos_ganados,
+      "puntosAcumulados" = "puntosAcumulados" + puntos_ganados
+  where id = solicitud."clienteId";
+  if not found then raise exception 'No se encontró el perfil del cliente de esta recogida.'; end if;
+
+  insert into public."movimientosPuntos" (
+    id, "clienteId", "empleadoId", "materialId", tipo, "cantidadMaterial", puntos, descripcion, fecha
+  ) values (
+    gen_random_uuid()::text, solicitud."clienteId", id_gestor, material.id, 'acumulacion', p_cantidad,
+    puntos_ganados, 'Puntos por recogida: ' || material.nombre, now()::text
+  );
+
+  update public."solicitudesRecogida" set estado = 'completada' where id = solicitud.id;
+  return puntos_ganados;
+end;
+$$;
+revoke all on function public.completar_recogida_con_puntos(text, text, numeric) from public, anon;
+grant execute on function public.completar_recogida_con_puntos(text, text, numeric) to authenticated;
+
 revoke all on function public.es_administrador() from public, anon;
 revoke all on function public.es_empleado_o_administrador() from public, anon;
 revoke all on function public.es_propietario_cliente(text) from public, anon;
+revoke all on function public.crear_ficha_cliente_propia(text, text, text) from public, anon;
 grant execute on function public.es_administrador() to authenticated;
 grant execute on function public.es_empleado_o_administrador() to authenticated;
 grant execute on function public.es_propietario_cliente(text) to authenticated;
+grant execute on function public.crear_ficha_cliente_propia(text, text, text) to authenticated;
 revoke all on function public.es_gestor_o_administrador() from public, anon;
 revoke all on function public.es_entidad_financiera() from public, anon;
 revoke all on function public.es_cliente_activo() from public, anon;
