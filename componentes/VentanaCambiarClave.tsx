@@ -49,14 +49,14 @@ export default function VentanaCambiarClave({ onContinuar }: { onContinuar: () =
 
 const estilos = StyleSheet.create({
   contenedor: { flexGrow: 1, backgroundColor: colores.fondo, justifyContent: 'center', padding: 24 },
-  panel: { width: '100%', maxWidth: 440, alignSelf: 'center', backgroundColor: colores.blanco, borderRadius: 12, padding: 24, borderWidth: 1, borderColor: colores.borde },
-  marca: { color: colores.verdeOscuro, fontSize: 28, fontWeight: '900', marginBottom: 16 },
-  titulo: { color: colores.tinta, fontSize: 24, fontWeight: '800', marginBottom: 10 },
-  descripcion: { color: colores.textoSuave, fontSize: 14, marginBottom: 18 },
-  etiqueta: { color: colores.tinta, fontSize: 14, fontWeight: '700', marginBottom: 7, marginTop: 12 },
-  campo: { height: 48, borderWidth: 1, borderColor: colores.borde, borderRadius: 8, paddingHorizontal: 14, fontSize: 16, color: colores.tinta },
-  mensaje: { color: colores.error, fontSize: 14, fontWeight: '700', marginTop: 16 },
+  panel: { width: '100%', maxWidth: 480, alignSelf: 'center', backgroundColor: colores.blanco, borderRadius: 22, padding: 30, borderWidth: 1, borderColor: colores.borde, shadowColor: colores.azulOscuro, shadowOpacity: 0.08, shadowRadius: 22, shadowOffset: { width: 0, height: 10 }, elevation: 4 },
+  marca: { color: colores.azulOscuro, fontSize: 20, fontWeight: '900', letterSpacing: -0.5, marginBottom: 20 },
+  titulo: { color: colores.azulOscuro, fontSize: 26, fontWeight: '900', marginBottom: 10 },
+  descripcion: { color: colores.textoSuave, fontSize: 14, lineHeight: 21, marginBottom: 18 },
+  etiqueta: { color: colores.azulOscuro, fontSize: 13, fontWeight: '800', marginBottom: 7, marginTop: 12 },
+  campo: { height: 49, borderWidth: 1, borderColor: colores.borde, borderRadius: 10, paddingHorizontal: 14, fontSize: 15, backgroundColor: '#fbfcfa', color: colores.tinta },
+  mensaje: { color: colores.error, fontSize: 13, lineHeight: 19, fontWeight: '700', marginTop: 16 },
   exito: { color: colores.verdeOscuro },
-  boton: { height: 50, borderRadius: 8, backgroundColor: colores.verde, alignItems: 'center', justifyContent: 'center', marginTop: 20 },
+  boton: { height: 50, borderRadius: 11, backgroundColor: colores.verde, alignItems: 'center', justifyContent: 'center', marginTop: 20 },
   textoBoton: { color: colores.blanco, fontSize: 15, fontWeight: '800' },
 });
